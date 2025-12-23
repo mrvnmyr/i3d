@@ -216,6 +216,10 @@ func (d *Daemon) reload(rt *starlib.Runtime) {
 }
 
 func (d *Daemon) dispatch(rt *starlib.Runtime, ev i3ipc.Event) {
+	// Reset per-dispatch caches (e.g., GET_TREE) so scripts can reuse work within this event.
+	rt.BeginEvent()
+	defer rt.EndEvent()
+
 	reg := d.reg.Load().(*Registry)
 	handlers := reg.ByEvent[ev.Type]
 	if len(handlers) == 0 {
@@ -230,6 +234,17 @@ func (d *Daemon) dispatch(rt *starlib.Runtime, ev i3ipc.Event) {
 	}
 
 	evObj := starlib.EventValue(ev)
+
+	// Enrich window events so most scripts don't need tree queries.
+	if ev.Type == i3ipc.I3WindowEvent {
+		if d.debug {
+			d.debugf("enriching window event")
+		}
+		if err := rt.EnrichWindowEvent(evObj); err != nil {
+			d.logf("enrich window event: %v", err)
+		}
+	}
+
 	// Freeze once; safe to share across handlers.
 	evObj.Freeze()
 
