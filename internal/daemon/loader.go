@@ -16,7 +16,7 @@ import (
 type ScriptError struct {
 	Path string
 	Err  error
-}
+)
 
 func (e ScriptError) Error() string {
 	return fmt.Sprintf("script %s: %v", filepath.Base(e.Path), e.Err)
@@ -86,9 +86,20 @@ func loadOne(rt *starlib.Runtime, path string) (*Script, error) {
 
 	priority := 0
 	if v, ok := globals["priority"]; ok {
-		if i, ok2 := starlark.AsInt32(v); ok2 {
-			priority = int(i)
-		} else if v.Type() != "NoneType" {
+		if v == starlark.None {
+			// keep default
+		} else if iv, ok2 := v.(starlark.Int); ok2 {
+			i64, ok3 := iv.Int64()
+			if !ok3 {
+				return nil, fmt.Errorf("priority out of range")
+			}
+			maxInt := int64(int(^uint(0) >> 1))
+			minInt := -maxInt - 1
+			if i64 < minInt || i64 > maxInt {
+				return nil, fmt.Errorf("priority out of range")
+			}
+			priority = int(i64)
+		} else {
 			return nil, fmt.Errorf("priority must be int, got %s", v.Type())
 		}
 	}

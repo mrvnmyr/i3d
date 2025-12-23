@@ -50,9 +50,9 @@ func New(dir string, debug bool) (*Daemon, error) {
 }
 
 func (d *Daemon) Run(ctx context.Context) error {
-	if err := i3ipc.StartEventListener(); err != nil {
-		return fmt.Errorf("start event listener: %w", err)
-	}
+	d.debugf("starting i3 event listener")
+	i3ipc.StartEventListener()
+	d.debugf("started i3 event listener")
 
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
