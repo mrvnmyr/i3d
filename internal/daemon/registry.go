@@ -23,8 +23,16 @@ func (h Handler) ThreadValue() *starlark.Thread { return h.Thread }
 // CallableValue returns the callable to execute for this handler.
 func (h Handler) CallableValue() starlark.Callable { return h.Callable }
 
+type ScriptInfo struct {
+	Path         string
+	Priority     int
+	HandlerCount int
+	Events       []string // event names, sorted
+}
+
 type Registry struct {
 	ByEvent map[i3ipc.EventType][]Handler
+	Scripts map[string]ScriptInfo // key: absolute script path
 
 	scriptCount  int
 	handlerCount int
@@ -33,23 +41,36 @@ type Registry struct {
 func NewRegistry() *Registry {
 	return &Registry{
 		ByEvent: map[i3ipc.EventType][]Handler{},
+		Scripts: map[string]ScriptInfo{},
 	}
 }
 
 func (r *Registry) AddScript(s *Script) {
 	r.scriptCount++
 
+	events := make([]string, 0, len(s.Handlers))
 	for et, fn := range s.Handlers {
+		evName := eventTypeToName(et)
+		events = append(events, evName)
+
 		h := Handler{
 			Path:      s.Path,
 			Priority:  s.Priority,
 			EventType: et,
-			EventName: eventTypeToName(et),
+			EventName: evName,
 			Callable:  fn,
 			Thread:    s.Thread,
 		}
 		r.ByEvent[et] = append(r.ByEvent[et], h)
 		r.handlerCount++
+	}
+	sort.Strings(events)
+
+	r.Scripts[s.Path] = ScriptInfo{
+		Path:         s.Path,
+		Priority:     s.Priority,
+		HandlerCount: len(s.Handlers),
+		Events:       events,
 	}
 }
 
@@ -70,6 +91,15 @@ func (r *Registry) Finalize() {
 
 func (r *Registry) ScriptCount() int  { return r.scriptCount }
 func (r *Registry) HandlerCount() int { return r.handlerCount }
+
+func (r *Registry) ScriptPathsSorted() []string {
+	out := make([]string, 0, len(r.Scripts))
+	for p := range r.Scripts {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
 
 func eventTypeToName(et i3ipc.EventType) string {
 	switch et {
