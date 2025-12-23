@@ -9,6 +9,10 @@ import (
 )
 
 // JSONToStarlark converts decoded encoding/json values into Starlark values.
+//
+// Note: While encoding/json decodes numbers as float64 by default, some of our
+// internal helpers (e.g. i3.find) construct Go-native int64 values. We accept
+// those here too to keep the conversion generic.
 func JSONToStarlark(v any) (starlark.Value, error) {
 	switch x := v.(type) {
 	case nil:
@@ -17,6 +21,37 @@ func JSONToStarlark(v any) (starlark.Value, error) {
 		return starlark.Bool(x), nil
 	case string:
 		return starlark.String(x), nil
+
+	// Native ints (produced by internal helpers, not by encoding/json).
+	case int:
+		return starlark.MakeInt64(int64(x)), nil
+	case int8:
+		return starlark.MakeInt64(int64(x)), nil
+	case int16:
+		return starlark.MakeInt64(int64(x)), nil
+	case int32:
+		return starlark.MakeInt64(int64(x)), nil
+	case int64:
+		return starlark.MakeInt64(x), nil
+	case uint:
+		const maxI64 = uint64(^uint64(0) >> 1)
+		if uint64(x) > maxI64 {
+			return nil, fmt.Errorf("int out of range: %d", x)
+		}
+		return starlark.MakeInt64(int64(x)), nil
+	case uint8:
+		return starlark.MakeInt64(int64(x)), nil
+	case uint16:
+		return starlark.MakeInt64(int64(x)), nil
+	case uint32:
+		return starlark.MakeInt64(int64(x)), nil
+	case uint64:
+		const maxI64 = uint64(^uint64(0) >> 1)
+		if x > maxI64 {
+			return nil, fmt.Errorf("int out of range: %d", x)
+		}
+		return starlark.MakeInt64(int64(x)), nil
+
 	case float64:
 		// JSON numbers decode as float64; prefer int if it is integral and fits.
 		if !math.IsInf(x, 0) && !math.IsNaN(x) && math.Trunc(x) == x {
