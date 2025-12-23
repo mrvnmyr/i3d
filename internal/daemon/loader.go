@@ -16,7 +16,7 @@ import (
 type ScriptError struct {
 	Path string
 	Err  error
-)
+}
 
 func (e ScriptError) Error() string {
 	return fmt.Sprintf("script %s: %v", filepath.Base(e.Path), e.Err)
