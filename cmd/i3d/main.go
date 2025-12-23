@@ -80,3 +80,4 @@ func main() {
 		fmt.Fprintf(os.Stderr, "i3d: exited with error: %v\n", err)
 		os.Exit(1)
 	}
+}
