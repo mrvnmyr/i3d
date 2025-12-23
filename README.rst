@@ -48,6 +48,8 @@ Predeclared globals for every script:
   - ``i3.command(cmd: str) -> bool``
   - ``i3.raw(msg: str, payload: str="") -> str`` (raw JSON)
   - ``i3.query(msg: str, payload: str="") -> value`` (JSON -> Starlark)
+  - ``i3.find(criteria: dict) -> list[dict]``
+  - ``i3.set_urgency(con_id: int, urgent: bool=True) -> bool``
   - ``i3.get_tree() -> dict/list``
   - ``i3.get_workspaces() -> list``
   - ``i3.get_outputs() -> list``

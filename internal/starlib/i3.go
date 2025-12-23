@@ -14,6 +14,7 @@ func (rt *Runtime) i3Attrs() starlark.StringDict {
 		"raw":            starlark.NewBuiltin("i3.raw", rt.builtinI3Raw),
 		"query":          starlark.NewBuiltin("i3.query", rt.builtinI3Query),
 		"find":           starlark.NewBuiltin("i3.find", rt.builtinI3Find),
+		"set_urgency":    starlark.NewBuiltin("i3.set_urgency", rt.builtinI3SetUrgency),
 		"get_tree":       starlark.NewBuiltin("i3.get_tree", rt.builtinI3GetTree),
 		"get_workspaces": starlark.NewBuiltin("i3.get_workspaces", rt.builtinI3GetWorkspaces),
 		"get_outputs":    starlark.NewBuiltin("i3.get_outputs", rt.builtinI3GetOutputs),
@@ -29,11 +30,71 @@ func (rt *Runtime) builtinI3Command(_ *starlark.Thread, b *starlark.Builtin, arg
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "cmd", &cmd); err != nil {
 		return nil, err
 	}
+
+	if rt.debug && rt.debugf != nil {
+		rt.debugf("i3.command cmd=%q", cmd)
+	}
+
 	ok, err := rt.i3.Command(cmd)
+
+	if rt.debug && rt.debugf != nil {
+		if err != nil {
+			rt.debugf("i3.command ok=%v err=%v", ok, err)
+		} else {
+			rt.debugf("i3.command ok=%v", ok)
+		}
+	}
+
 	if err != nil {
 		return nil, err
 	}
 	return starlark.Bool(ok), nil
+}
+
+func (rt *Runtime) builtinI3SetUrgency(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var conID starlark.Int
+	urgent := true
+
+	if err := starlark.UnpackArgs(
+		b.Name(), args, kwargs,
+		"con_id", &conID,
+		"urgent?", &urgent,
+	); err != nil {
+		return nil, err
+	}
+
+	cid, ok := conID.Int64()
+	if !ok {
+		return nil, fmt.Errorf("con_id out of range")
+	}
+	if cid <= 0 {
+		return nil, fmt.Errorf("con_id must be > 0")
+	}
+
+	mode := "enable"
+	if !urgent {
+		mode = "disable"
+	}
+	cmd := fmt.Sprintf(`[con_id="%d"] urgent %s`, cid, mode)
+
+	if rt.debug && rt.debugf != nil {
+		rt.debugf("i3.set_urgency con_id=%d urgent=%v cmd=%q", cid, urgent, cmd)
+	}
+
+	ok2, err := rt.i3.Command(cmd)
+
+	if rt.debug && rt.debugf != nil {
+		if err != nil {
+			rt.debugf("i3.set_urgency ok=%v err=%v", ok2, err)
+		} else {
+			rt.debugf("i3.set_urgency ok=%v", ok2)
+		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	return starlark.Bool(ok2), nil
 }
 
 func (rt *Runtime) builtinI3Raw(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
