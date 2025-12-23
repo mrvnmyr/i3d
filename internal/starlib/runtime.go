@@ -28,7 +28,7 @@ type FindCriteria struct {
 }
 
 type Runtime struct {
-	i3    *i3ipc.IPCSocket
+	i3    *I3Client
 	exec  *ExecRunner
 	debug bool
 
@@ -41,7 +41,7 @@ type Runtime struct {
 	eventTree *treeCache
 }
 
-func NewRuntime(i3 *i3ipc.IPCSocket, exec *ExecRunner, debug bool, debugf func(string, ...any), logf func(string, ...any)) *Runtime {
+func NewRuntime(i3 *I3Client, exec *ExecRunner, debug bool, debugf func(string, ...any), logf func(string, ...any)) *Runtime {
 	rt := &Runtime{
 		i3:     i3,
 		exec:   exec,

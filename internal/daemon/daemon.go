@@ -21,8 +21,6 @@ type Daemon struct {
 	dir   string
 	debug bool
 
-	i3sock *i3ipc.IPCSocket
-
 	reg atomic.Value // *Registry
 
 	watcher *fsnotify.Watcher
@@ -36,15 +34,9 @@ func New(dir string, debug bool) (*Daemon, error) {
 		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	sock, err := i3ipc.GetIPCSocket()
-	if err != nil {
-		return nil, fmt.Errorf("get i3 IPC socket: %w", err)
-	}
-
 	d := &Daemon{
-		dir:    dir,
-		debug:  debug,
-		i3sock: sock,
+		dir:   dir,
+		debug: debug,
 	}
 	d.reg.Store(NewRegistry())
 
@@ -68,7 +60,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	execRunner := starlib.NewExecRunner(ctx)
-	rt := starlib.NewRuntime(d.i3sock, execRunner, d.debug, d.debugf, d.logf)
+
+	i3c, err := starlib.NewI3Client(d.debug, d.debugf)
+	if err != nil {
+		return fmt.Errorf("init i3 IPC client: %w", err)
+	}
+	defer func() { _ = i3c.Close() }()
+
+	rt := starlib.NewRuntime(i3c, execRunner, d.debug, d.debugf, d.logf)
 
 	// Initial load.
 	d.reload(rt, nil)
