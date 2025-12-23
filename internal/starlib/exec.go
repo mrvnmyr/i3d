@@ -3,6 +3,7 @@ package starlib
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -88,7 +89,7 @@ func (e *ExecRunner) Run(argv []string, captureStdout, captureStderr bool) (rc i
 	}
 
 	var exitErr *exec.ExitError
-	if ok := errorAs(runErr, &exitErr); ok {
+	if errors.As(runErr, &exitErr) {
 		// Non-zero exit code.
 		code := exitErr.ExitCode()
 		return code, outBuf.String(), errBuf.String(), nil
@@ -96,16 +97,6 @@ func (e *ExecRunner) Run(argv []string, captureStdout, captureStderr bool) (rc i
 
 	// Execution failure (e.g. binary not found, context canceled).
 	return -1, outBuf.String(), errBuf.String(), runErr
-}
-
-// Small local helper to avoid importing errors everywhere.
-func errorAs(err error, target interface{}) bool {
-	type aser interface{ As(any) bool }
-	if e, ok := err.(aser); ok {
-		return e.As(target)
-	}
-	// Fallback: no As; can't inspect.
-	return false
 }
 
 func toStringSlice(v starlark.Value) ([]string, error) {

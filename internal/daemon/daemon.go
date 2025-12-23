@@ -11,7 +11,6 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	i3ipc "github.com/mdirkse/i3ipc-go"
-	"go.starlark.net/starlark"
 
 	"i3d/internal/starlib"
 )
@@ -41,8 +40,8 @@ func New(dir string, debug bool) (*Daemon, error) {
 	}
 
 	d := &Daemon{
-		dir:   dir,
-		debug: debug,
+		dir:    dir,
+		debug:  debug,
 		i3sock: sock,
 	}
 	d.reg.Store(NewRegistry())
@@ -90,7 +89,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			d.debugf("context done; exiting")
 			return nil
-		case ev := <-eventIn:
+		case ev, ok := <-eventIn:
+			if !ok {
+				d.logf("event channel closed; exiting")
+				return nil
+			}
 			d.dispatch(rt, ev)
 		case <-reloadReq:
 			d.reload(rt)
@@ -131,6 +134,9 @@ func (d *Daemon) subscribeAll(ctx context.Context, out chan<- i3ipc.Event) error
 					default:
 						// Drop if overloaded; handlers should be fast.
 						// (Keeps memory footprint bounded.)
+						if d.debug {
+							d.debugf("dropped event=%s change=%s (queue full)", eventTypeToName(ev.Type), ev.Change)
+						}
 					}
 				}
 			}
@@ -198,6 +204,7 @@ func (d *Daemon) watchLoop(ctx context.Context, reloadReq chan<- struct{}) {
 }
 
 func (d *Daemon) reload(rt *starlib.Runtime) {
+	d.debugf("reloading scripts...")
 	reg, errs := LoadAll(rt, d.dir)
 	for _, e := range errs {
 		d.logf("%v", e)
@@ -212,7 +219,14 @@ func (d *Daemon) dispatch(rt *starlib.Runtime, ev i3ipc.Event) {
 	reg := d.reg.Load().(*Registry)
 	handlers := reg.ByEvent[ev.Type]
 	if len(handlers) == 0 {
+		if d.debug {
+			d.debugf("event=%s change=%s (no handlers)", eventTypeToName(ev.Type), ev.Change)
+		}
 		return
+	}
+
+	if d.debug {
+		d.debugf("event=%s change=%s handlers=%d", eventTypeToName(ev.Type), ev.Change, len(handlers))
 	}
 
 	evObj := starlib.EventValue(ev)
@@ -220,6 +234,9 @@ func (d *Daemon) dispatch(rt *starlib.Runtime, ev i3ipc.Event) {
 	evObj.Freeze()
 
 	for _, h := range handlers {
+		if d.debug {
+			d.debugf(" -> %s prio=%d", filepath.Base(h.Path), h.Priority)
+		}
 		if err := rt.CallHandler(h, evObj); err != nil {
 			// Keep daemon running even if a handler fails.
 			d.logf("handler %s (%s): %v", filepath.Base(h.Path), h.EventName, err)

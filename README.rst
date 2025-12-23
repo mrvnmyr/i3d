@@ -29,7 +29,14 @@ Run
 
 .. code:: bash
 
-   ./scripts/run.sh
+   ./run.sh
+
+Build
+-----
+
+.. code:: bash
+
+   ./build.sh
 
 Starlark environment
 --------------------

@@ -19,7 +19,7 @@ func JSONToStarlark(v any) (starlark.Value, error) {
 		return starlark.String(x), nil
 	case float64:
 		// JSON numbers decode as float64; prefer int if it is integral and fits.
-		if math.IsFinite(x) && math.Trunc(x) == x {
+		if !math.IsInf(x, 0) && !math.IsNaN(x) && math.Trunc(x) == x {
 			if x >= math.MinInt64 && x <= math.MaxInt64 {
 				return starlark.MakeInt64(int64(x)), nil
 			}

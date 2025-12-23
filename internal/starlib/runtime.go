@@ -56,16 +56,16 @@ func (rt *Runtime) Predeclared(scriptPath string) starlark.StringDict {
 	return pre
 }
 
-func (rt *Runtime) CallHandler(h interface {
-	Thread() *starlark.Thread
-	Callable() starlark.Callable
-}, event starlark.Value) error {
-	// This helper is kept generic for minimal coupling, but we call it from daemon
-	// with the concrete Handler type via the method below.
-	return fmt.Errorf("invalid handler adapter")
+type Handler interface {
+	ThreadValue() *starlark.Thread
+	CallableValue() starlark.Callable
 }
 
-// CallHandler executes a daemon.Handler.
+func (rt *Runtime) CallHandler(h Handler, event starlark.Value) error {
+	return rt.CallHandler2(h.ThreadValue(), h.CallableValue(), event)
+}
+
+// CallHandler2 executes a callable on a specific thread.
 func (rt *Runtime) CallHandler2(thread *starlark.Thread, fn starlark.Callable, ev starlark.Value) error {
 	_, err := starlark.Call(thread, fn, starlark.Tuple{ev}, nil)
 	return err

@@ -17,6 +17,12 @@ type Handler struct {
 	Thread    *starlark.Thread
 }
 
+// ThreadValue returns the starlark thread to run the handler on.
+func (h Handler) ThreadValue() *starlark.Thread { return h.Thread }
+
+// CallableValue returns the callable to execute for this handler.
+func (h Handler) CallableValue() starlark.Callable { return h.Callable }
+
 type Registry struct {
 	ByEvent map[i3ipc.EventType][]Handler
 
