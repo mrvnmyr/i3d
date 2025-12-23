@@ -42,9 +42,28 @@ func (rt *Runtime) builtinI3Raw(_ *starlark.Thread, b *starlark.Builtin, args st
 		return nil, err
 	}
 
+	if isBarIDsMsg(msg) {
+		if rt.debug && rt.debugf != nil {
+			rt.debugf("i3.raw get_bar_ids (payload ignored, len=%d)", len(payload))
+		}
+		ids, err := rt.i3.GetBarIds()
+		if err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(ids)
+		if err != nil {
+			return nil, fmt.Errorf("json encode: %w", err)
+		}
+		return starlark.String(string(raw)), nil
+	}
+
 	mt, err := parseMessageType(msg)
 	if err != nil {
 		return nil, err
+	}
+
+	if rt.debug && rt.debugf != nil {
+		rt.debugf("i3.raw msg=%q payload_len=%d", msg, len(payload))
 	}
 
 	raw, err := rt.i3.Raw(mt, payload)
@@ -61,9 +80,28 @@ func (rt *Runtime) builtinI3Query(_ *starlark.Thread, b *starlark.Builtin, args 
 		return nil, err
 	}
 
+	if isBarIDsMsg(msg) {
+		if rt.debug && rt.debugf != nil {
+			rt.debugf("i3.query get_bar_ids (payload ignored, len=%d)", len(payload))
+		}
+		ids, err := rt.i3.GetBarIds()
+		if err != nil {
+			return nil, err
+		}
+		out := make([]starlark.Value, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, starlark.String(id))
+		}
+		return starlark.NewList(out), nil
+	}
+
 	mt, err := parseMessageType(msg)
 	if err != nil {
 		return nil, err
+	}
+
+	if rt.debug && rt.debugf != nil {
+		rt.debugf("i3.query msg=%q payload_len=%d", msg, len(payload))
 	}
 
 	raw, err := rt.i3.Raw(mt, payload)
@@ -79,7 +117,8 @@ func (rt *Runtime) builtinI3Query(_ *starlark.Thread, b *starlark.Builtin, args 
 }
 
 func (rt *Runtime) builtinI3GetTree(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	_ = thread; _ = b
+	_ = thread
+	_ = b
 	if len(args) != 0 || len(kwargs) != 0 {
 		return nil, fmt.Errorf("get_tree takes no arguments")
 	}
@@ -163,15 +202,18 @@ func (rt *Runtime) builtinI3GetBarIDs(_ *starlark.Thread, b *starlark.Builtin, a
 	if len(args) != 0 || len(kwargs) != 0 {
 		return nil, fmt.Errorf("get_bar_ids takes no arguments")
 	}
-	raw, err := rt.i3.Raw(i3ipc.I3GetBarIds, "")
+	if rt.debug && rt.debugf != nil {
+		rt.debugf("i3.get_bar_ids")
+	}
+	ids, err := rt.i3.GetBarIds()
 	if err != nil {
 		return nil, err
 	}
-	var anyv any
-	if err := json.Unmarshal(raw, &anyv); err != nil {
-		return nil, fmt.Errorf("json decode: %w", err)
+	out := make([]starlark.Value, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, starlark.String(id))
 	}
-	return JSONToStarlark(anyv)
+	return starlark.NewList(out), nil
 }
 
 func (rt *Runtime) builtinI3GetBarConfig(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -201,13 +243,20 @@ func parseMessageType(s string) (i3ipc.MessageType, error) {
 		return i3ipc.I3GetOutputs, nil
 	case "get_marks", "marks":
 		return i3ipc.I3GetMarks, nil
-	case "get_bar_ids", "bar_ids", "get_barids":
-		return i3ipc.I3GetBarIds, nil
 	case "get_bar_config", "bar_config", "get_barconfig":
 		return i3ipc.I3GetBarConfig, nil
 	case "get_version", "version":
 		return i3ipc.I3GetVersion, nil
 	default:
 		return 0, fmt.Errorf("unknown i3 message type: %q", s)
+	}
+}
+
+func isBarIDsMsg(s string) bool {
+	switch lower(s) {
+	case "get_bar_ids", "bar_ids", "get_barids":
+		return true
+	default:
+		return false
 	}
 }
