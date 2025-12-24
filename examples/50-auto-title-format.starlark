@@ -1,0 +1,8 @@
+# ~/.config/i3d/50-auto-title-format
+#
+# Goal:
+#   Every fullscreen window -> workspace 4, unless that workspace already has
+#   a fullscreen window, then workspace 5, then 6, ... upwards.
+#   After moving, switch to that workspace.
+
+priority = 50

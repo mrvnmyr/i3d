@@ -1,7 +1,7 @@
 # Example script: log when workspace focus changes, and demonstrate exec().
 #
 # Install by symlinking/copying into:
-#   ~/.config/i3d/00-demo.starlark
+#   ~/.config/i3d/10-demo.starlark
 #
 # Enable daemon debug logs:
 #   DEBUG=1 i3d
