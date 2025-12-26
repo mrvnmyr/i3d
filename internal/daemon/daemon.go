@@ -61,7 +61,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	execRunner := starlib.NewExecRunner(ctx)
 
-	i3c, err := starlib.NewI3Client(d.debug, d.debugf)
+	i3c, err := d.initI3Client(ctx)
 	if err != nil {
 		return fmt.Errorf("init i3 IPC client: %w", err)
 	}
@@ -98,6 +98,35 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.dispatch(rt, ev)
 		case paths := <-reloadReq:
 			d.reload(rt, paths)
+		}
+	}
+}
+
+func (d *Daemon) initI3Client(ctx context.Context) (*starlib.I3Client, error) {
+	const retryInterval = 1 * time.Second
+	const retryWindow = 15 * time.Second
+
+	start := time.Now()
+	attempt := 0
+	for {
+		attempt++
+		i3c, err := starlib.NewI3Client(d.debug, d.debugf)
+		if err == nil {
+			return i3c, nil
+		}
+		if time.Since(start) >= retryWindow {
+			return nil, err
+		}
+		if d.debug && d.debugf != nil {
+			d.debugf("i3 IPC init attempt %d failed; retrying: %v", attempt, err)
+		}
+
+		timer := time.NewTimer(retryInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
 		}
 	}
 }
