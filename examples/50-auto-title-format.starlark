@@ -1,43 +1,38 @@
 # ~/.config/i3d/50-auto-title-format.starlark
 #
 # Goal:
-#   When a new X11 window opens, map its "name" (prefer WM_CLASS) to an i3
-#   title_format and apply it via i3 IPC.
+#   When a new X11 window opens, map its X11 identity to an i3 title_format and
+#   apply it via i3 IPC.
 #
 # Notes:
-#   - For X11, the most stable identifier is WM_CLASS -> window_properties.class
-#     (and sometimes window_properties.instance).
-#   - i3 tree fields:
-#       node["name"]                     = current title
-#       node["window_properties"]["class"]    = WM_CLASS class
-#       node["window_properties"]["instance"] = WM_CLASS instance
+#   - Prefer X11 WM_CLASS (window_properties.class / instance); fall back to
+#     the node title (node["name"]) if needed.
+#   - This Starlark dialect has no while-loops and forbids recursion; tree
+#     walks are implemented with a bounded for-loop + explicit stack.
 #
 # Debug:
-#   Set DEBUG=1 when launching i3d to see extra logs from this script.
+#   DEBUG=1 i3d
 
 priority = 50
 
-# Hardcoded mapping: X11 "window name" -> title_format string.
+# Hardcoded mapping: X11 "window name" -> i3 title_format string.
 # Prefer stable WM_CLASS names (window_properties.class / instance).
-#
-# Replace/add entries to suit your setup.
 TITLE_FORMAT = {
     # Browsers
-    "Firefox": "[] %title",
-    "firefox": "[] %title",
-
-    # Terminals
-    "Alacritty": "[] %title",
-    "URxvt": "[] %title",
-    "XTerm": "[] %title",
+    "firefox": "🫐 %title",
+    "chromium": "🫐 %title",
 
     # File managers
-    "ranger": "[] %title",
-    "Thunar": "[] %title",
+    "thunar": "📂 %title",
+    "urxvt": "%title",
+
+    "mpv": "📼 %title",
+
+    # Browsers
 
     # Editors
     "code-oss": "[] %title",
-    "Code": "[] %title",
+    "code": "[] %title",
     "jetbrains-idea": "[] %title",
     "jetbrains-clion": "[] %title",
     "jetbrains-goland": "[] %title",
@@ -50,118 +45,112 @@ def _dbg(msg):
 def _as_list(v):
     if v == None:
         return []
-    # Starlark doesn't have isinstance; rely on iteration behavior.
-    # If v isn't iterable, return [].
-    try:
-        out = []
-        for it in v:
-            out.append(it)
-        return out
-    except:
-        return []
+    t = type(v)
+    if t == "list" or t == "tuple":
+        return v
+    return []
 
-def _find_focused(n):
-    if n == None:
+def _wp_get(wp, key):
+    if wp == None:
         return None
-    if n.get("focused", False):
-        return n
-
-    for c in _as_list(n.get("nodes", None)):
-        r = _find_focused(c)
-        if r != None:
-            return r
-    for c in _as_list(n.get("floating_nodes", None)):
-        r = _find_focused(c)
-        if r != None:
-            return r
-    return None
-
-def _find_by_con_id(n, con_id):
-    if n == None or con_id == None:
+    if type(wp) != "dict":
         return None
-    if n.get("id", None) == con_id:
-        return n
-
-    for c in _as_list(n.get("nodes", None)):
-        r = _find_by_con_id(c, con_id)
-        if r != None:
-            return r
-    for c in _as_list(n.get("floating_nodes", None)):
-        r = _find_by_con_id(c, con_id)
-        if r != None:
-            return r
-    return None
+    return wp.get(key, None)
 
 def _i3_quote(s):
     # Quote for i3 command strings inside double-quotes.
-    # Keep it simple: escape backslashes and quotes; squash newlines.
     s = s.replace("\\", "\\\\")
     s = s.replace("\"", "\\\"")
     s = s.replace("\r", " ")
     s = s.replace("\n", " ")
     return s
 
+def _find_focused(root):
+    if root == None:
+        return None
+
+    stack = [root]
+
+    # No while-loops; use a large bounded range and break/return.
+    for _ in range(1000000):
+        if len(stack) == 0:
+            return None
+
+        n = stack.pop()
+
+        if n.get("focused", False):
+            return n
+
+        for c in _as_list(n.get("nodes", None)):
+            stack.append(c)
+        for c in _as_list(n.get("floating_nodes", None)):
+            stack.append(c)
+
+    _dbg("tree walk exceeded limit in _find_focused")
+    return None
+
+def _find_by_con_id(root, con_id):
+    if root == None or con_id == None:
+        return None
+
+    stack = [root]
+
+    for _ in range(1000000):
+        if len(stack) == 0:
+            return None
+
+        n = stack.pop()
+
+        if n.get("id", None) == con_id:
+            return n
+
+        for c in _as_list(n.get("nodes", None)):
+            stack.append(c)
+        for c in _as_list(n.get("floating_nodes", None)):
+            stack.append(c)
+
+    _dbg("tree walk exceeded limit in _find_by_con_id con_id=%s" % str(con_id))
+    return None
+
 def _pick_key(node):
-    # Return (matched_key, title_format) or (None, None).
-    if node == None:
-        return (None, None)
-
+    # Return (matched_key, fmt) or (None, None).
     wp = node.get("window_properties", None)
-    cls = None
-    inst = None
-    if wp != None:
-        # wp is a dict for X11 windows; best-effort access.
-        try:
-            cls = wp.get("class", None)
-            inst = wp.get("instance", None)
-        except:
-            cls = None
-            inst = None
-
+    cls = _wp_get(wp, "class")
+    inst = _wp_get(wp, "instance")
     name = node.get("name", None)
 
-    # Try in stable order: class -> instance -> name.
-    if cls != None and cls in TITLE_FORMAT:
-        return (cls, TITLE_FORMAT[cls])
-    if inst != None and inst in TITLE_FORMAT:
-        return (inst, TITLE_FORMAT[inst])
-    if name != None and name in TITLE_FORMAT:
-        return (name, TITLE_FORMAT[name])
+    # # Stable order: class -> instance -> name.
+    # if cls != None and cls in TITLE_FORMAT:
+    #     return (cls, TITLE_FORMAT[cls])
+    # if inst != None and inst in TITLE_FORMAT:
+    #     return (inst, TITLE_FORMAT[inst])
+    # if name != None and name in TITLE_FORMAT:
+    #     return (name, TITLE_FORMAT[name])
 
-    # Also try lowercase variants (common for some apps).
-    if cls != None:
+    # Lowercase fallbacks.
+    if cls != None and type(cls) == "string":
         l = cls.lower()
         if l in TITLE_FORMAT:
             return (l, TITLE_FORMAT[l])
-    if inst != None:
+    if inst != None and type(inst) == "string":
         l = inst.lower()
         if l in TITLE_FORMAT:
             return (l, TITLE_FORMAT[l])
-    if name != None:
+    if name != None and type(name) == "string":
         l = name.lower()
         if l in TITLE_FORMAT:
             return (l, TITLE_FORMAT[l])
 
-    return (None, None)
+    return (l, "🔩 %title")
 
 def _apply_title_format(con_id, fmt, matched_key, node):
-    if con_id == None or fmt == None:
-        return
-
     qfmt = _i3_quote(fmt)
     cmd = '[con_id="%s"] title_format "%s"' % (str(con_id), qfmt)
 
     if debug:
         wp = node.get("window_properties", None)
-        cls = None
-        inst = None
-        if wp != None:
-            try:
-                cls = wp.get("class", None)
-                inst = wp.get("instance", None)
-            except:
-                cls = None
-                inst = None
+        cls = _wp_get(wp, "class")
+        inst = _wp_get(wp, "instance")
         _dbg("apply con_id=%s matched=%s class=%s instance=%s name=%s fmt=%s" % (
             str(con_id), str(matched_key), str(cls), str(inst), str(node.get("name", None)), str(fmt),
         ))
@@ -172,14 +161,10 @@ def _apply_title_format(con_id, fmt, matched_key, node):
         _dbg("i3.command ok=%s" % str(ok))
 
 def on_window(e):
-    # Apply only when a new window appears.
     if e.get("change", "") != "new":
         return
 
-    # Prefer the enriched con_id (focused at dispatch time), then fall back to
-    # the actually focused node.
     con_id = e.get("con_id", None)
-
     tree = i3.get_tree()
 
     node = None
@@ -191,25 +176,22 @@ def on_window(e):
     if node == None:
         node = _find_focused(tree)
         if node == None:
-            if debug:
-                _dbg("no focused node found for window new event")
+            _dbg("no focused node found for window new event")
             return
         con_id = node.get("id", None)
+
+    if con_id == None:
+        if debug:
+            _dbg("no con_id available; cannot apply title_format")
+        return
 
     matched_key, fmt = _pick_key(node)
     if fmt == None:
         if debug:
             wp = node.get("window_properties", None)
-            cls = None
-            inst = None
-            if wp != None:
-                try:
-                    cls = wp.get("class", None)
-                    inst = wp.get("instance", None)
-                except:
-                    cls = None
-                    inst = None
-            _dbg("no match for new window: con_id=%s class=%s instance=%s name=%s" % (
+            cls = _wp_get(wp, "class")
+            inst = _wp_get(wp, "instance")
+            _dbg("no match: con_id=%s class=%s instance=%s name=%s" % (
                 str(con_id), str(cls), str(inst), str(node.get("name", None)),
             ))
         return
