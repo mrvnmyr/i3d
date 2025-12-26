@@ -46,17 +46,20 @@ for pkg in "${pkgs[@]}"; do
     dbg "  mutex=${mutex}"
     dbg "  block=${block}"
 
-    go test "$pkg" \
-        -run '^$' \
-        -bench . \
-        -benchmem \
-        -count 1 \
-        -benchtime "$benchtime" \
-        -cpuprofile "$cpu" \
-        -memprofile "$mem" \
-        -mutexprofile "$mutex" \
-        -blockprofile "$block" \
-        ${GO_TEST_FLAGS:-}
+    (
+        set -x
+        go test "$pkg" \
+            -run '^$' \
+            -bench . \
+            -benchmem \
+            -count 1 \
+            -benchtime "$benchtime" \
+            -cpuprofile "$cpu" \
+            -memprofile "$mem" \
+            -mutexprofile "$mutex" \
+            -blockprofile "$block" \
+            ${GO_TEST_FLAGS:-}
+    )
 done
 
 if [[ "${DEBUG:-}" == "1" ]]; then
