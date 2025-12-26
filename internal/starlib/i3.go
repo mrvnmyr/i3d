@@ -3,6 +3,7 @@ package starlib
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	i3ipc "github.com/mdirkse/i3ipc-go"
 	"go.starlark.net/starlark"
@@ -10,18 +11,21 @@ import (
 
 func (rt *Runtime) i3Attrs() starlark.StringDict {
 	return starlark.StringDict{
-		"command":        starlark.NewBuiltin("i3.command", rt.builtinI3Command),
-		"raw":            starlark.NewBuiltin("i3.raw", rt.builtinI3Raw),
-		"query":          starlark.NewBuiltin("i3.query", rt.builtinI3Query),
-		"find":           starlark.NewBuiltin("i3.find", rt.builtinI3Find),
-		"set_urgency":    starlark.NewBuiltin("i3.set_urgency", rt.builtinI3SetUrgency),
-		"get_tree":       starlark.NewBuiltin("i3.get_tree", rt.builtinI3GetTree),
-		"get_workspaces": starlark.NewBuiltin("i3.get_workspaces", rt.builtinI3GetWorkspaces),
-		"get_outputs":    starlark.NewBuiltin("i3.get_outputs", rt.builtinI3GetOutputs),
-		"get_marks":      starlark.NewBuiltin("i3.get_marks", rt.builtinI3GetMarks),
-		"get_version":    starlark.NewBuiltin("i3.get_version", rt.builtinI3GetVersion),
-		"get_bar_ids":    starlark.NewBuiltin("i3.get_bar_ids", rt.builtinI3GetBarIDs),
-		"get_bar_config": starlark.NewBuiltin("i3.get_bar_config", rt.builtinI3GetBarConfig),
+		"command":                  starlark.NewBuiltin("i3.command", rt.builtinI3Command),
+		"raw":                      starlark.NewBuiltin("i3.raw", rt.builtinI3Raw),
+		"query":                    starlark.NewBuiltin("i3.query", rt.builtinI3Query),
+		"find":                     starlark.NewBuiltin("i3.find", rt.builtinI3Find),
+		"set_urgency":              starlark.NewBuiltin("i3.set_urgency", rt.builtinI3SetUrgency),
+		"rename_workspace":         starlark.NewBuiltin("i3.rename_workspace", rt.builtinI3RenameWorkspace),
+		"rename_current_workspace": starlark.NewBuiltin("i3.rename_current_workspace", rt.builtinI3RenameCurrentWorkspace),
+		"get_workspace_names":      starlark.NewBuiltin("i3.get_workspace_names", rt.builtinI3GetWorkspaceNames),
+		"get_tree":                 starlark.NewBuiltin("i3.get_tree", rt.builtinI3GetTree),
+		"get_workspaces":           starlark.NewBuiltin("i3.get_workspaces", rt.builtinI3GetWorkspaces),
+		"get_outputs":              starlark.NewBuiltin("i3.get_outputs", rt.builtinI3GetOutputs),
+		"get_marks":                starlark.NewBuiltin("i3.get_marks", rt.builtinI3GetMarks),
+		"get_version":              starlark.NewBuiltin("i3.get_version", rt.builtinI3GetVersion),
+		"get_bar_ids":              starlark.NewBuiltin("i3.get_bar_ids", rt.builtinI3GetBarIDs),
+		"get_bar_config":           starlark.NewBuiltin("i3.get_bar_config", rt.builtinI3GetBarConfig),
 	}
 }
 
@@ -330,6 +334,39 @@ func (rt *Runtime) builtinI3GetTree(thread *starlark.Thread, b *starlark.Builtin
 	return rt.getTreeStarlark()
 }
 
+type i3WorkspaceInfo struct {
+	Name    string `json:"name"`
+	Focused bool   `json:"focused"`
+}
+
+func (rt *Runtime) getWorkspacesInfo() ([]i3WorkspaceInfo, error) {
+	raw, err := rt.i3.Raw(i3ipc.I3GetWorkspaces, "")
+	if err != nil {
+		return nil, err
+	}
+	var wss []i3WorkspaceInfo
+	if err := json.Unmarshal(raw, &wss); err != nil {
+		return nil, fmt.Errorf("json decode: %w", err)
+	}
+	return wss, nil
+}
+
+func (rt *Runtime) builtinI3GetWorkspaceNames(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	_ = b
+	if len(args) != 0 || len(kwargs) != 0 {
+		return nil, fmt.Errorf("get_workspace_names takes no arguments")
+	}
+	wss, err := rt.getWorkspacesInfo()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]starlark.Value, 0, len(wss))
+	for _, ws := range wss {
+		out = append(out, starlark.String(ws.Name))
+	}
+	return starlark.NewList(out), nil
+}
+
 func (rt *Runtime) builtinI3GetWorkspaces(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	_ = b
 	if len(args) != 0 || len(kwargs) != 0 {
@@ -360,6 +397,83 @@ func (rt *Runtime) builtinI3GetOutputs(_ *starlark.Thread, b *starlark.Builtin, 
 		return nil, fmt.Errorf("json decode: %w", err)
 	}
 	return JSONToStarlark(anyv)
+}
+
+func (rt *Runtime) builtinI3RenameWorkspace(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var oldVal starlark.Value
+	var newName string
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "old", &oldVal, "new", &newName); err != nil {
+		return nil, err
+	}
+	oldName, err := workspaceNameFromValue(oldVal)
+	if err != nil {
+		return nil, fmt.Errorf("old: %w", err)
+	}
+	if newName == "" {
+		return nil, fmt.Errorf("new must be non-empty")
+	}
+
+	cmd := fmt.Sprintf("rename workspace %s to %s", i3Quote(oldName), i3Quote(newName))
+
+	if rt.debug && rt.debugf != nil {
+		rt.debugf("i3.rename_workspace old=%q new=%q cmd=%q", oldName, newName, cmd)
+	}
+
+	ok, err := rt.i3.Command(cmd)
+	if rt.debug && rt.debugf != nil {
+		if err != nil {
+			rt.debugf("i3.rename_workspace ok=%v err=%v", ok, err)
+		} else {
+			rt.debugf("i3.rename_workspace ok=%v", ok)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return starlark.Bool(ok), nil
+}
+
+func (rt *Runtime) builtinI3RenameCurrentWorkspace(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var newName string
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "new", &newName); err != nil {
+		return nil, err
+	}
+	if newName == "" {
+		return nil, fmt.Errorf("new must be non-empty")
+	}
+	wss, err := rt.getWorkspacesInfo()
+	if err != nil {
+		return nil, err
+	}
+	var oldName string
+	for _, ws := range wss {
+		if ws.Focused {
+			oldName = ws.Name
+			break
+		}
+	}
+	if oldName == "" {
+		return nil, fmt.Errorf("focused workspace not found")
+	}
+
+	cmd := fmt.Sprintf("rename workspace %s to %s", i3Quote(oldName), i3Quote(newName))
+
+	if rt.debug && rt.debugf != nil {
+		rt.debugf("i3.rename_current_workspace old=%q new=%q cmd=%q", oldName, newName, cmd)
+	}
+
+	ok, err := rt.i3.Command(cmd)
+	if rt.debug && rt.debugf != nil {
+		if err != nil {
+			rt.debugf("i3.rename_current_workspace ok=%v err=%v", ok, err)
+		} else {
+			rt.debugf("i3.rename_current_workspace ok=%v", ok)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return starlark.Bool(ok), nil
 }
 
 func (rt *Runtime) builtinI3GetMarks(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -476,6 +590,30 @@ func toStringSliceValue(v starlark.Value) ([]string, error) {
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+func workspaceNameFromValue(v starlark.Value) (string, error) {
+	switch x := v.(type) {
+	case starlark.String:
+		return string(x), nil
+	case starlark.Int:
+		i64, ok := x.Int64()
+		if !ok {
+			return "", fmt.Errorf("int out of range")
+		}
+		return fmt.Sprintf("%d", i64), nil
+	default:
+		return "", fmt.Errorf("expected string or int, got %s", v.Type())
+	}
+}
+
+func i3Quote(s string) string {
+	return `"` + escapeI3String(s) + `"`
+}
+
+func escapeI3String(s string) string {
+	// Escape for i3 double-quoted strings.
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
 }
 
 func normalizeScalar(v starlark.Value) (any, error) {
