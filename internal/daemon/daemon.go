@@ -44,10 +44,6 @@ func New(dir string, debug bool) (*Daemon, error) {
 }
 
 func (d *Daemon) Run(ctx context.Context) error {
-	d.debugf("starting i3 event listener")
-	i3ipc.StartEventListener()
-	d.debugf("started i3 event listener")
-
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return fmt.Errorf("fsnotify watcher: %w", err)
@@ -61,11 +57,28 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	execRunner := starlib.NewExecRunner(ctx)
 
+	// IMPORTANT:
+	// i3ipc-go can hard-fail (log.Fatal/os.Exit) if it cannot discover/connect to i3
+	// at startup (common under systemd when i3 isn't ready yet, or PATH/env differs).
+	// So we first establish our own IPC client with retries, then set I3SOCK and only
+	// then start the i3ipc-go event listener/subscriptions.
 	i3c, err := d.initI3Client(ctx)
 	if err != nil {
 		return fmt.Errorf("init i3 IPC client: %w", err)
 	}
 	defer func() { _ = i3c.Close() }()
+
+	// Help i3ipc-go find the socket without needing to exec i3.
+	if sp := i3c.SocketPath(); sp != "" {
+		_ = os.Setenv("I3SOCK", sp)
+		if d.debug {
+			d.debugf("set I3SOCK=%s for i3ipc-go", sp)
+		}
+	}
+
+	d.debugf("starting i3 event listener")
+	i3ipc.StartEventListener()
+	d.debugf("started i3 event listener")
 
 	rt := starlib.NewRuntime(i3c, execRunner, d.debug, d.debugf, d.logf)
 
@@ -103,25 +116,31 @@ func (d *Daemon) Run(ctx context.Context) error {
 }
 
 func (d *Daemon) initI3Client(ctx context.Context) (*starlib.I3Client, error) {
-	const retryInterval = 1 * time.Second
-	const retryWindow = 15 * time.Second
+	const (
+		maxAttempts = 15
+		interval    = 1 * time.Second
+	)
 
-	start := time.Now()
-	attempt := 0
-	for {
-		attempt++
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		i3c, err := starlib.NewI3Client(d.debug, d.debugf)
 		if err == nil {
+			if d.debug && d.debugf != nil {
+				d.debugf("i3 IPC init ok (attempt %d/%d)", attempt, maxAttempts)
+			}
 			return i3c, nil
 		}
-		if time.Since(start) >= retryWindow {
-			return nil, err
-		}
+		lastErr = err
+
 		if d.debug && d.debugf != nil {
-			d.debugf("i3 IPC init attempt %d failed; retrying: %v", attempt, err)
+			d.debugf("i3 IPC init attempt %d/%d failed: %v", attempt, maxAttempts, err)
 		}
 
-		timer := time.NewTimer(retryInterval)
+		if attempt == maxAttempts {
+			break
+		}
+
+		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -129,6 +148,11 @@ func (d *Daemon) initI3Client(ctx context.Context) (*starlib.I3Client, error) {
 		case <-timer.C:
 		}
 	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("unknown i3 IPC init failure")
+	}
+	return nil, lastErr
 }
 
 func (d *Daemon) subscribeAll(ctx context.Context, out chan<- i3ipc.Event) error {

@@ -46,14 +46,18 @@ func NewI3Client(debug bool, debugf func(string, ...any)) (*I3Client, error) {
 		return nil, err
 	}
 	c := &I3Client{
-		debug:  debug,
-		debugf: debugf,
+		debug:    debug,
+		debugf:   debugf,
 		sockPath: path,
 	}
 	if debug && debugf != nil {
 		debugf("i3 IPC client: socket=%s", path)
 	}
 	return c, nil
+}
+
+func (c *I3Client) SocketPath() string {
+	return c.sockPath
 }
 
 func (c *I3Client) Close() error {
