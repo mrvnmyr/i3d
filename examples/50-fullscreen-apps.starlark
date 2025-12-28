@@ -16,17 +16,20 @@ priority = 50
 BASE_WS = 4
 SCAN_MAX = 64
 
+
 def _has_other_fullscreen_on_ws(wsnum, exclude_con_id):
     # Return True if ANY fullscreen node exists on wsnum that is NOT exclude_con_id.
-    res = i3.find(criteria={
-        "where": {
-            "type": "con",
-            "workspace_num": wsnum,
-            "fullscreen": True,
-        },
-        "fields": ["con_id"],
-        "limit": 2,  # 1 is enough in most cases; 2 helps when exclude_con_id is present.
-    })
+    res = i3.find(
+        criteria={
+            "where": {
+                "type": "con",
+                "workspace_num": wsnum,
+                "fullscreen": True,
+            },
+            "fields": ["con_id"],
+            "limit": 2,  # 1 is enough in most cases; 2 helps when exclude_con_id is present.
+        }
+    )
 
     for r in res:
         cid = r.get("con_id", None)
@@ -34,17 +37,20 @@ def _has_other_fullscreen_on_ws(wsnum, exclude_con_id):
             return True
     return False
 
+
 def _pick_target_ws(start, exclude_con_id):
     for n in range(start, start + SCAN_MAX):
         if not _has_other_fullscreen_on_ws(n, exclude_con_id):
             return n
     return start
 
+
 def _move_con_to_ws_and_follow(con_id, wsnum):
     # Focus the container by id, move it, then switch to its workspace.
     i3.command('[con_id="%d"] focus' % con_id)
-    i3.command('move container to workspace number %d' % wsnum)
-    i3.command('workspace number %d' % wsnum)
+    i3.command("move container to workspace number %d" % wsnum)
+    i3.command("workspace number %d" % wsnum)
+
 
 def on_window(e):
     # Only act when fullscreen mode changes (prevents ping-pong on focus/move).
@@ -69,8 +75,14 @@ def on_window(e):
         return
 
     # if debug:
-    log("fullscreen-apps: con_id=%d fs=%d ws=%s -> target=%d" % (
-        con_id, fs, str(cur_ws), target,
-    ))
+    log(
+        "fullscreen-apps: con_id=%d fs=%d ws=%s -> target=%d"
+        % (
+            con_id,
+            fs,
+            str(cur_ws),
+            target,
+        )
+    )
 
     _move_con_to_ws_and_follow(con_id, target)

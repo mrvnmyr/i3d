@@ -21,15 +21,11 @@ TITLE_FORMAT = {
     # Browsers
     "firefox": "🫐 %title",
     "chromium": "🫐 %title",
-
     # File managers
     "thunar": "📂 %title",
     "urxvt": "%title",
-
     "mpv": "📼 %title",
-
     # Browsers
-
     # Editors
     "code-oss": "[] %title",
     "code": "[] %title",
@@ -38,9 +34,11 @@ TITLE_FORMAT = {
     "jetbrains-goland": "[] %title",
 }
 
+
 def _dbg(msg):
     if debug:
         log("auto-title-format: " + msg)
+
 
 def _as_list(v):
     if v == None:
@@ -50,6 +48,7 @@ def _as_list(v):
         return v
     return []
 
+
 def _wp_get(wp, key):
     if wp == None:
         return None
@@ -57,13 +56,15 @@ def _wp_get(wp, key):
         return None
     return wp.get(key, None)
 
+
 def _i3_quote(s):
     # Quote for i3 command strings inside double-quotes.
     s = s.replace("\\", "\\\\")
-    s = s.replace("\"", "\\\"")
+    s = s.replace('"', '\\"')
     s = s.replace("\r", " ")
     s = s.replace("\n", " ")
     return s
+
 
 def _find_focused(root):
     if root == None:
@@ -89,6 +90,7 @@ def _find_focused(root):
     _dbg("tree walk exceeded limit in _find_focused")
     return None
 
+
 def _find_by_con_id(root, con_id):
     if root == None or con_id == None:
         return None
@@ -112,36 +114,41 @@ def _find_by_con_id(root, con_id):
     _dbg("tree walk exceeded limit in _find_by_con_id con_id=%s" % str(con_id))
     return None
 
+
 def _pick_key(node):
-    # Return (matched_key, fmt) or (None, None).
+    # Return (matched_key, fmt). If nothing matches, return a default.
     wp = node.get("window_properties", None)
     cls = _wp_get(wp, "class")
     inst = _wp_get(wp, "instance")
     name = node.get("name", None)
 
-    # # Stable order: class -> instance -> name.
-    # if cls != None and cls in TITLE_FORMAT:
-    #     return (cls, TITLE_FORMAT[cls])
-    # if inst != None and inst in TITLE_FORMAT:
-    #     return (inst, TITLE_FORMAT[inst])
-    # if name != None and name in TITLE_FORMAT:
-    #     return (name, TITLE_FORMAT[name])
-
-    # Lowercase fallbacks.
+    # Stable order: class -> instance -> name (all lowercased for matching).
     if cls != None and type(cls) == "string":
-        l = cls.lower()
-        if l in TITLE_FORMAT:
-            return (l, TITLE_FORMAT[l])
-    if inst != None and type(inst) == "string":
-        l = inst.lower()
-        if l in TITLE_FORMAT:
-            return (l, TITLE_FORMAT[l])
-    if name != None and type(name) == "string":
-        l = name.lower()
-        if l in TITLE_FORMAT:
-            return (l, TITLE_FORMAT[l])
+        k = cls.lower()
+        if k in TITLE_FORMAT:
+            return (k, TITLE_FORMAT[k])
 
-    return (l, "🔩 %title")
+    if inst != None and type(inst) == "string":
+        k = inst.lower()
+        if k in TITLE_FORMAT:
+            return (k, TITLE_FORMAT[k])
+
+    if name != None and type(name) == "string":
+        k = name.lower()
+        if k in TITLE_FORMAT:
+            return (k, TITLE_FORMAT[k])
+
+    # Fallback: pick a best-effort key for debug, but always defined.
+    fallback_key = "<default>"
+    if cls != None and type(cls) == "string":
+        fallback_key = cls.lower()
+    elif inst != None and type(inst) == "string":
+        fallback_key = inst.lower()
+    elif name != None and type(name) == "string":
+        fallback_key = name.lower()
+
+    return (fallback_key, "🔩 %title")
+
 
 def _apply_title_format(con_id, fmt, matched_key, node):
     qfmt = _i3_quote(fmt)
@@ -151,14 +158,23 @@ def _apply_title_format(con_id, fmt, matched_key, node):
         wp = node.get("window_properties", None)
         cls = _wp_get(wp, "class")
         inst = _wp_get(wp, "instance")
-        _dbg("apply con_id=%s matched=%s class=%s instance=%s name=%s fmt=%s" % (
-            str(con_id), str(matched_key), str(cls), str(inst), str(node.get("name", None)), str(fmt),
-        ))
+        _dbg(
+            "apply con_id=%s matched=%s class=%s instance=%s name=%s fmt=%s"
+            % (
+                str(con_id),
+                str(matched_key),
+                str(cls),
+                str(inst),
+                str(node.get("name", None)),
+                str(fmt),
+            )
+        )
         _dbg("i3 cmd=" + cmd)
 
     ok = i3.command(cmd)
     if debug:
         _dbg("i3.command ok=%s" % str(ok))
+
 
 def on_window(e):
     if e.get("change", "") != "new":
@@ -191,9 +207,15 @@ def on_window(e):
             wp = node.get("window_properties", None)
             cls = _wp_get(wp, "class")
             inst = _wp_get(wp, "instance")
-            _dbg("no match: con_id=%s class=%s instance=%s name=%s" % (
-                str(con_id), str(cls), str(inst), str(node.get("name", None)),
-            ))
+            _dbg(
+                "no match: con_id=%s class=%s instance=%s name=%s"
+                % (
+                    str(con_id),
+                    str(cls),
+                    str(inst),
+                    str(node.get("name", None)),
+                )
+            )
         return
 
     _apply_title_format(con_id, fmt, matched_key, node)
