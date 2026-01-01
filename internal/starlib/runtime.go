@@ -36,8 +36,9 @@ type Runtime struct {
 	debugf func(string, ...any)
 	logf   func(string, ...any)
 
-	i3mod  starlark.Value
-	pidmod starlark.Value
+	i3mod   starlark.Value
+	pidmod  starlark.Value
+	timemod starlark.Value
 
 	callMu sync.Mutex
 
@@ -55,6 +56,7 @@ func NewRuntime(i3 *I3Client, exec *ExecRunner, debug bool, debugf func(string, 
 	}
 	rt.i3mod = newModule("i3", rt.i3Attrs())
 	rt.pidmod = newModule("pid", rt.pidAttrs())
+	rt.timemod = newModule("time", rt.timeAttrs())
 	return rt
 }
 
@@ -79,6 +81,7 @@ func (rt *Runtime) Predeclared(scriptPath string) starlark.StringDict {
 	pre := starlark.StringDict{
 		"i3":       rt.i3mod,
 		"pid":      rt.pidmod,
+		"time":     rt.timemod,
 		"exec":     starlark.NewBuiltin("exec", rt.builtinExec),
 		"log":      starlark.NewBuiltin("log", rt.builtinLog),
 		"debug":    starlark.Bool(rt.debug),

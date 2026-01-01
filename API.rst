@@ -57,6 +57,11 @@ i3 module
 - ``i3.get_bar_config(bar_id: str) -> dict``
 - ``i3.get_window_pid(con_id: int) -> int|None``
 
+time module
+-----------
+
+- ``time.now_sec() -> int``
+
 pid module
 ----------
 

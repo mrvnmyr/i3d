@@ -10,8 +10,7 @@ finally opens its first window it will be moved back to workspace 3.
 pid_info = {}
 
 def now_sec():
-    res = exec(["date", "+%s"])
-    return int(res["stdout"].strip())
+    return time.now_sec()
 
 def current_workspace_name():
     for ws in i3.get_workspaces():

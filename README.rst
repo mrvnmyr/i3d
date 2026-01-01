@@ -68,6 +68,9 @@ Predeclared globals for every script:
 - ``log(msg: str)`` writes to stderr.
 - ``debug: bool`` reflects ``DEBUG=1``.
 - ``__file__: str`` current script path.
+- ``time``: module with:
+
+  - ``time.now_sec() -> int``
 - ``pid``: module with:
 
   - ``pid.is_ancestor(ancestor: int, descendant: int) -> bool``
