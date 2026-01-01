@@ -9,6 +9,7 @@ import (
 
 	i3ipc "github.com/mdirkse/i3ipc-go"
 	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 
 	"i3d/internal/starlib"
 )
@@ -79,7 +80,11 @@ func loadOne(rt *starlib.Runtime, path string) (*Script, error) {
 	thread := rt.NewThread(path)
 
 	predeclared := rt.Predeclared(path)
-	globals, err := starlark.ExecFile(thread, path, src, predeclared)
+	_, prog, err := starlark.SourceProgramOptions(syntax.LegacyFileOptions(), path, src, predeclared.Has)
+	if err != nil {
+		return nil, err
+	}
+	globals, err := prog.Init(thread, predeclared)
 	if err != nil {
 		return nil, err
 	}

@@ -43,6 +43,8 @@ Starlark environment
 
 Predeclared globals for every script:
 
+- Full reference: ``API.rst``
+
 - ``i3``: module with:
 
   - ``i3.command(cmd: str) -> bool``
@@ -60,11 +62,17 @@ Predeclared globals for every script:
   - ``i3.get_version() -> dict``
   - ``i3.get_bar_ids() -> list``
   - ``i3.get_bar_config(bar_id: str) -> dict``
+  - ``i3.get_window_pid(con_id: int) -> int|None``
 
 - ``exec(args: list[str], check: bool=True, capture_stdout: bool=True, capture_stderr: bool=True) -> dict`` Returns: ``{"rc": int, "stdout": str|None, "stderr": str|None}`` If ``check=True`` and rc != 0 => raises an error.
 - ``log(msg: str)`` writes to stderr.
 - ``debug: bool`` reflects ``DEBUG=1``.
 - ``__file__: str`` current script path.
+- ``pid``: module with:
+
+  - ``pid.is_ancestor(ancestor: int, descendant: int) -> bool``
+  - ``pid.watch_new(callback: function, poll_interval_ms: int=100, use_poll: bool=False) -> function``
+    Returns a stop function that cancels the watcher.
 
 Notes
 -----

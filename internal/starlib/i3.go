@@ -26,6 +26,7 @@ func (rt *Runtime) i3Attrs() starlark.StringDict {
 		"get_version":              starlark.NewBuiltin("i3.get_version", rt.builtinI3GetVersion),
 		"get_bar_ids":              starlark.NewBuiltin("i3.get_bar_ids", rt.builtinI3GetBarIDs),
 		"get_bar_config":           starlark.NewBuiltin("i3.get_bar_config", rt.builtinI3GetBarConfig),
+		"get_window_pid":           starlark.NewBuiltin("i3.get_window_pid", rt.builtinI3GetWindowPID),
 	}
 }
 
@@ -332,6 +333,25 @@ func (rt *Runtime) builtinI3GetTree(thread *starlark.Thread, b *starlark.Builtin
 		return nil, fmt.Errorf("get_tree takes no arguments")
 	}
 	return rt.getTreeStarlark()
+}
+
+func (rt *Runtime) builtinI3GetWindowPID(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var conIDVal starlark.Int
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "con_id", &conIDVal); err != nil {
+		return nil, err
+	}
+	conID, err := starlarkIntToInt64(conIDVal, "con_id")
+	if err != nil {
+		return nil, err
+	}
+	pid, ok, err := rt.windowPIDByConID(conID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return starlark.None, nil
+	}
+	return starlark.MakeInt64(pid), nil
 }
 
 type i3WorkspaceInfo struct {

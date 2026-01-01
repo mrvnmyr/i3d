@@ -1,0 +1,84 @@
+"""
+Record the workspace at process start, then move new windows for that process
+back to the workspace where it was launched.
+
+Example: start Blender on workspace 3, switch to workspace 5, and when Blender
+finally opens its first window it will be moved back to workspace 3.
+"""
+
+# pid -> {"ws": str, "ts": int}
+pid_info = {}
+
+def now_sec():
+    res = exec(["date", "+%s"])
+    return int(res["stdout"].strip())
+
+def current_workspace_name():
+    for ws in i3.get_workspaces():
+        if ws.get("focused"):
+            return ws.get("name")
+    return None
+
+def workspace_name_by_num(num):
+    for ws in i3.get_workspaces():
+        if ws.get("num") == num:
+            return ws.get("name")
+    return None
+
+def workspace_from_pid(pid):
+    res = i3.find({"pid": pid, "fields": ["workspace_num"], "limit": 1})
+    if len(res) == 0:
+        return None
+    ws_num = res[0].get("workspace_num")
+    if ws_num == None:
+        return None
+    return workspace_name_by_num(ws_num)
+
+def on_new_pid(child_pid, parent_pid):
+    ws = workspace_from_pid(parent_pid)
+    if ws == None:
+        ws = current_workspace_name()
+    if ws == None:
+        return
+    pid_info[child_pid] = {"ws": ws, "ts": now_sec()}
+
+def prune_old(seconds=600):
+    now = now_sec()
+    dead = []
+    for p, info in pid_info.items():
+        if now - info.get("ts", now) > seconds:
+            dead.append(p)
+    for p in dead:
+        pid_info.pop(p, None)
+
+def closest_tracked_ancestor(target_pid):
+    best = None
+    for p, _ in pid_info.items():
+        if pid.is_ancestor(p, target_pid):
+            if best == None or pid.is_ancestor(best, p):
+                best = p
+    return best
+
+def on_window(e):
+    if e.get("change") != "new":
+        return
+    con_id = e.get("con_id")
+    if con_id == None:
+        return
+    win_pid = i3.get_window_pid(con_id)
+    if win_pid == None:
+        return
+
+    prune_old()
+    root_pid = closest_tracked_ancestor(win_pid)
+    if root_pid == None:
+        return
+    ws = pid_info[root_pid].get("ws")
+    if ws == None:
+        return
+
+    cmd = '[con_id="%d"] move container to workspace "%s"' % (con_id, ws)
+    i3.command(cmd)
+
+# Start the PID watcher (default uses netlink; use_poll=True for polling).
+pid_watch_stop = pid.watch_new(on_new_pid)

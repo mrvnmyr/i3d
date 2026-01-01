@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	i3ipc "github.com/mdirkse/i3ipc-go"
 	"go.starlark.net/starlark"
@@ -35,7 +36,10 @@ type Runtime struct {
 	debugf func(string, ...any)
 	logf   func(string, ...any)
 
-	i3mod starlark.Value
+	i3mod  starlark.Value
+	pidmod starlark.Value
+
+	callMu sync.Mutex
 
 	// Per-dispatch caches (cleared via BeginEvent/EndEvent).
 	eventTree *treeCache
@@ -50,6 +54,7 @@ func NewRuntime(i3 *I3Client, exec *ExecRunner, debug bool, debugf func(string, 
 		logf:   logf,
 	}
 	rt.i3mod = newModule("i3", rt.i3Attrs())
+	rt.pidmod = newModule("pid", rt.pidAttrs())
 	return rt
 }
 
@@ -72,10 +77,11 @@ func (rt *Runtime) NewThread(scriptPath string) *starlark.Thread {
 
 func (rt *Runtime) Predeclared(scriptPath string) starlark.StringDict {
 	pre := starlark.StringDict{
-		"i3":      rt.i3mod,
-		"exec":    starlark.NewBuiltin("exec", rt.builtinExec),
-		"log":     starlark.NewBuiltin("log", rt.builtinLog),
-		"debug":   starlark.Bool(rt.debug),
+		"i3":       rt.i3mod,
+		"pid":      rt.pidmod,
+		"exec":     starlark.NewBuiltin("exec", rt.builtinExec),
+		"log":      starlark.NewBuiltin("log", rt.builtinLog),
+		"debug":    starlark.Bool(rt.debug),
 		"__file__": starlark.String(scriptPath),
 	}
 	return pre
@@ -92,8 +98,14 @@ func (rt *Runtime) CallHandler(h Handler, event starlark.Value) error {
 
 // CallHandler2 executes a callable on a specific thread.
 func (rt *Runtime) CallHandler2(thread *starlark.Thread, fn starlark.Callable, ev starlark.Value) error {
-	_, err := starlark.Call(thread, fn, starlark.Tuple{ev}, nil)
+	_, err := rt.call(thread, fn, starlark.Tuple{ev}, nil)
 	return err
+}
+
+func (rt *Runtime) call(thread *starlark.Thread, fn starlark.Callable, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	rt.callMu.Lock()
+	defer rt.callMu.Unlock()
+	return starlark.Call(thread, fn, args, kwargs)
 }
 
 func (rt *Runtime) builtinLog(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -171,9 +183,11 @@ func (rt *Runtime) getTreeStarlark() (starlark.Value, error) {
 }
 
 // EnrichWindowEvent adds:
-//   con_id: int|None
-//   workspace_num: int|None
-//   fullscreen_mode: int|None
+//
+//	con_id: int|None
+//	workspace_num: int|None
+//	fullscreen_mode: int|None
+//
 // for window events by inspecting the focused node in the tree.
 func (rt *Runtime) EnrichWindowEvent(ev *starlark.Dict) error {
 	id, ws, fs, ok, err := rt.focusedNodeInfo()
@@ -332,6 +346,39 @@ func (rt *Runtime) findInTree(c FindCriteria) ([]map[string]any, error) {
 		rt.debugf("i3.find: results=%d", len(out))
 	}
 	return out, nil
+}
+
+func (rt *Runtime) windowPIDByConID(conID int64) (int64, bool, error) {
+	anyv, err := rt.getTreeAny()
+	if err != nil {
+		return 0, false, err
+	}
+	root, ok := anyv.(map[string]any)
+	if !ok {
+		return 0, false, fmt.Errorf("get_tree: unexpected root type %T", anyv)
+	}
+
+	var walk func(n map[string]any) (int64, bool)
+	walk = func(n map[string]any) (int64, bool) {
+		if id, ok := nodeInt64(n, "id"); ok && id == conID {
+			pid, ok := nodeInt64(n, "pid")
+			return pid, ok
+		}
+		for _, child := range childNodes(n, "nodes") {
+			if pid, ok := walk(child); ok {
+				return pid, true
+			}
+		}
+		for _, child := range childNodes(n, "floating_nodes") {
+			if pid, ok := walk(child); ok {
+				return pid, true
+			}
+		}
+		return 0, false
+	}
+
+	pid, ok := walk(root)
+	return pid, ok, nil
 }
 
 func matchesNode(n map[string]any, wsNum int64, match map[string]any) bool {
@@ -552,9 +599,13 @@ func newModule(name string, attrs starlark.StringDict) *module {
 	return &module{name: name, attrs: attrs, keys: keys}
 }
 
-func (m *module) String() string        { return fmt.Sprintf("<%s>", m.name) }
-func (m *module) Type() string          { return "module" }
-func (m *module) Freeze()               { for _, v := range m.attrs { v.Freeze() } }
+func (m *module) String() string { return fmt.Sprintf("<%s>", m.name) }
+func (m *module) Type() string   { return "module" }
+func (m *module) Freeze() {
+	for _, v := range m.attrs {
+		v.Freeze()
+	}
+}
 func (m *module) Truth() starlark.Bool  { return starlark.True }
 func (m *module) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: %s", m.Type()) }
 
