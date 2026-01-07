@@ -10,8 +10,17 @@
 #     not on focus/move churn triggered by our own commands.
 #   - When scanning a workspace for fullscreen nodes, ignore *this* con_id,
 #     so we don't treat the container itself as "workspace already occupied".
+#
+# New:
+#   - IGNORED_CLASS_NAMES: if the fullscreen window has ANY of these class names,
+#     we ignore it (do not move it to workspace 4+).
 
 priority = 50
+
+# User-configurable: add class names you want to exclude from this rule.
+# Examples:
+# IGNORED_CLASS_NAMES = ["mpv", "Firefox", "discord"]
+IGNORED_CLASS_NAMES = []
 
 BASE_WS = 4
 SCAN_MAX = 64
@@ -52,6 +61,31 @@ def _move_con_to_ws_and_follow(con_id, wsnum):
     i3.command("workspace number %d" % wsnum)
 
 
+def _get_class_names(con_id):
+    cn = i3.get_class_names(con_id)
+    if cn == None:
+        return []
+    return cn
+
+
+def _is_ignored_by_class_names(con_id):
+    if IGNORED_CLASS_NAMES == None or len(IGNORED_CLASS_NAMES) == 0:
+        return False
+
+    names = _get_class_names(con_id)
+    if len(names) == 0:
+        return False
+
+    # Exact match only (case-sensitive).
+    for n in names:
+        for ign in IGNORED_CLASS_NAMES:
+            if ign == None or type(ign) != "string":
+                continue
+            if n == ign:
+                return True
+    return False
+
+
 def on_window(e):
     # Only act when fullscreen mode changes (prevents ping-pong on focus/move).
     if e.get("change", "") != "fullscreen_mode":
@@ -64,6 +98,15 @@ def on_window(e):
 
     con_id = e.get("con_id", None)
     if con_id == None:
+        return
+
+    # Ignore certain apps by class name.
+    if _is_ignored_by_class_names(con_id):
+        # if debug:
+        log(
+            "fullscreen-apps: ignoring con_id=%d classes=%s"
+            % (con_id, str(_get_class_names(con_id)))
+        )
         return
 
     cur_ws = e.get("workspace_num", None)

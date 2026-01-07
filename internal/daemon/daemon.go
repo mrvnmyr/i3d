@@ -125,14 +125,14 @@ func (d *Daemon) initI3Client(ctx context.Context) (*starlib.I3Client, error) {
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		i3c, err := starlib.NewI3Client(d.debug, d.debugf)
 		if err == nil {
-			if d.debug && d.debugf != nil {
+			if d.debug {
 				d.debugf("i3 IPC init ok (attempt %d/%d)", attempt, maxAttempts)
 			}
 			return i3c, nil
 		}
 		lastErr = err
 
-		if d.debug && d.debugf != nil {
+		if d.debug {
 			d.debugf("i3 IPC init attempt %d/%d failed: %v", attempt, maxAttempts, err)
 		}
 

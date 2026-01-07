@@ -63,6 +63,7 @@ Predeclared globals for every script:
   - ``i3.get_bar_ids() -> list``
   - ``i3.get_bar_config(bar_id: str) -> dict``
   - ``i3.get_window_pid(con_id: int) -> int|None``
+  - ``i3.get_class_names(con_id: int) -> list[str]|None``
 
 - ``exec(args: list[str], check: bool=True, capture_stdout: bool=True, capture_stderr: bool=True) -> dict`` Returns: ``{"rc": int, "stdout": str|None, "stderr": str|None}`` If ``check=True`` and rc != 0 => raises an error.
 - ``log(msg: str)`` writes to stderr.

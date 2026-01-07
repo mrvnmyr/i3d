@@ -56,6 +56,7 @@ i3 module
 - ``i3.get_bar_ids() -> list``
 - ``i3.get_bar_config(bar_id: str) -> dict``
 - ``i3.get_window_pid(con_id: int) -> int|None``
+- ``i3.get_class_names(con_id: int) -> list[str]|None``
 
 time module
 -----------

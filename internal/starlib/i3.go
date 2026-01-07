@@ -27,6 +27,7 @@ func (rt *Runtime) i3Attrs() starlark.StringDict {
 		"get_bar_ids":              starlark.NewBuiltin("i3.get_bar_ids", rt.builtinI3GetBarIDs),
 		"get_bar_config":           starlark.NewBuiltin("i3.get_bar_config", rt.builtinI3GetBarConfig),
 		"get_window_pid":           starlark.NewBuiltin("i3.get_window_pid", rt.builtinI3GetWindowPID),
+		"get_class_names":          starlark.NewBuiltin("i3.get_class_names", rt.builtinI3GetClassNames),
 	}
 }
 
@@ -352,6 +353,29 @@ func (rt *Runtime) builtinI3GetWindowPID(_ *starlark.Thread, b *starlark.Builtin
 		return starlark.None, nil
 	}
 	return starlark.MakeInt64(pid), nil
+}
+
+func (rt *Runtime) builtinI3GetClassNames(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var conIDVal starlark.Int
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "con_id", &conIDVal); err != nil {
+		return nil, err
+	}
+	conID, err := starlarkIntToInt64(conIDVal, "con_id")
+	if err != nil {
+		return nil, err
+	}
+	names, ok, err := rt.windowClassNamesByConID(conID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return starlark.None, nil
+	}
+	out := make([]starlark.Value, 0, len(names))
+	for _, name := range names {
+		out = append(out, starlark.String(name))
+	}
+	return starlark.NewList(out), nil
 }
 
 type i3WorkspaceInfo struct {

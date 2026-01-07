@@ -384,6 +384,49 @@ func (rt *Runtime) windowPIDByConID(conID int64) (int64, bool, error) {
 	return pid, ok, nil
 }
 
+func (rt *Runtime) windowClassNamesByConID(conID int64) ([]string, bool, error) {
+	anyv, err := rt.getTreeAny()
+	if err != nil {
+		return nil, false, err
+	}
+	root, ok := anyv.(map[string]any)
+	if !ok {
+		return nil, false, fmt.Errorf("get_tree: unexpected root type %T", anyv)
+	}
+
+	var walk func(n map[string]any) ([]string, bool)
+	walk = func(n map[string]any) ([]string, bool) {
+		if id, ok := nodeInt64(n, "id"); ok && id == conID {
+			names := []string{}
+			if wp, ok := n["window_properties"].(map[string]any); ok {
+				inst := ""
+				if val, ok := wp["instance"].(string); ok && val != "" {
+					inst = val
+					names = append(names, inst)
+				}
+				if cls, ok := wp["class"].(string); ok && cls != "" && cls != inst {
+					names = append(names, cls)
+				}
+			}
+			return names, true
+		}
+		for _, child := range childNodes(n, "nodes") {
+			if names, ok := walk(child); ok {
+				return names, true
+			}
+		}
+		for _, child := range childNodes(n, "floating_nodes") {
+			if names, ok := walk(child); ok {
+				return names, true
+			}
+		}
+		return nil, false
+	}
+
+	names, ok := walk(root)
+	return names, ok, nil
+}
+
 func matchesNode(n map[string]any, wsNum int64, match map[string]any) bool {
 	for k, want := range match {
 		key := strings.TrimSpace(strings.ToLower(k))
