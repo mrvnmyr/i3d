@@ -42,14 +42,14 @@ func makeSyntheticTree(workspaces, consPerWS int) map[string]any {
 		for i := 0; i < consPerWS; i++ {
 			id := float64(ws*100000 + i + 1)
 			con := map[string]any{
-				"type":           "con",
-				"id":             id,
+				"type":            "con",
+				"id":              id,
 				"fullscreen_mode": float64(0),
-				"focused":        false,
-				"name":           fmt.Sprintf("con-%d-%d", ws, i),
-				"app_id":         "bench.app",
-				"nodes":          []any{},
-				"floating_nodes": []any{},
+				"focused":         false,
+				"name":            fmt.Sprintf("con-%d-%d", ws, i),
+				"app_id":          "bench.app",
+				"nodes":           []any{},
+				"floating_nodes":  []any{},
 			}
 			cs = append(cs, con)
 		}
@@ -70,7 +70,7 @@ func makeSyntheticTree(workspaces, consPerWS int) map[string]any {
 }
 
 func newBenchRuntimeWithTree(anyTree any) *Runtime {
-	rt := NewRuntime(nil, NewExecRunner(context.Background()), os.Getenv("DEBUG") == "1", nil, func(string, ...any) {})
+	rt := NewRuntime(nil, NewExecRunner(context.Background()), os.Getenv("DEBUG") == "1", nil, func(string, ...any) {}, 0, 0)
 	// Prime the per-dispatch cache so none of these benches require a live i3 socket.
 	rt.eventTree = &treeCache{any: anyTree}
 	return rt

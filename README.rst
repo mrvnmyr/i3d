@@ -24,6 +24,14 @@ Debug logging
 
 Set ``DEBUG=1`` to enable daemon debug logs. Script ``print(...)`` always prints.
 
+Environment
+-----------
+
+- ``I3D_DIR=/path`` Override scripts directory.
+- ``DEBUG=1`` Enable daemon debug logs (script ``print(...)`` always prints).
+- ``I3D_HANDLER_MAX_STEPS`` Max Starlark steps per handler (``0`` disables, default ``5000000``).
+- ``I3D_HANDLER_TIMEOUT_MS`` Max handler wall time in ms (``0`` disables, default ``2000``).
+
 Run
 ---
 

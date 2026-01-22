@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	i3ipc "github.com/mdirkse/i3ipc-go"
 	"go.starlark.net/starlark"
@@ -42,17 +43,22 @@ type Runtime struct {
 
 	callMu sync.Mutex
 
+	handlerMaxSteps uint64
+	handlerTimeout  time.Duration
+
 	// Per-dispatch caches (cleared via BeginEvent/EndEvent).
 	eventTree *treeCache
 }
 
-func NewRuntime(i3 *I3Client, exec *ExecRunner, debug bool, debugf func(string, ...any), logf func(string, ...any)) *Runtime {
+func NewRuntime(i3 *I3Client, exec *ExecRunner, debug bool, debugf func(string, ...any), logf func(string, ...any), handlerMaxSteps uint64, handlerTimeout time.Duration) *Runtime {
 	rt := &Runtime{
-		i3:     i3,
-		exec:   exec,
-		debug:  debug,
-		debugf: debugf,
-		logf:   logf,
+		i3:              i3,
+		exec:            exec,
+		debug:           debug,
+		debugf:          debugf,
+		logf:            logf,
+		handlerMaxSteps: handlerMaxSteps,
+		handlerTimeout:  handlerTimeout,
 	}
 	rt.i3mod = newModule("i3", rt.i3Attrs())
 	rt.pidmod = newModule("pid", rt.pidAttrs())
@@ -68,13 +74,17 @@ func (rt *Runtime) EndEvent() { rt.eventTree = nil }
 
 func (rt *Runtime) NewThread(scriptPath string) *starlark.Thread {
 	base := filepath.Base(scriptPath)
-	return &starlark.Thread{
+	thread := &starlark.Thread{
 		Name: base,
 		Print: func(_ *starlark.Thread, msg string) {
 			// Script print(...) always emits; keep it simple and fast.
 			fmt.Fprintln(os.Stdout, msg)
 		},
 	}
+	thread.OnMaxSteps = func(t *starlark.Thread) {
+		t.Cancel(fmt.Sprintf("too many steps in %s", base))
+	}
+	return thread
 }
 
 func (rt *Runtime) Predeclared(scriptPath string) starlark.StringDict {
@@ -105,10 +115,44 @@ func (rt *Runtime) CallHandler2(thread *starlark.Thread, fn starlark.Callable, e
 	return err
 }
 
+// CallInit executes an init() function with standard limits applied.
+func (rt *Runtime) CallInit(thread *starlark.Thread, fn starlark.Callable) error {
+	_, err := rt.call(thread, fn, nil, nil)
+	return err
+}
+
 func (rt *Runtime) call(thread *starlark.Thread, fn starlark.Callable, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	rt.callMu.Lock()
 	defer rt.callMu.Unlock()
-	return starlark.Call(thread, fn, args, kwargs)
+
+	thread.Uncancel()
+
+	if rt.handlerMaxSteps > 0 {
+		cur := thread.ExecutionSteps()
+		max := cur + rt.handlerMaxSteps
+		if max < cur {
+			max = ^uint64(0)
+		}
+		thread.SetMaxExecutionSteps(max)
+	} else {
+		thread.SetMaxExecutionSteps(^uint64(0))
+	}
+
+	var timer *time.Timer
+	if rt.handlerTimeout > 0 {
+		timeout := rt.handlerTimeout
+		timer = time.AfterFunc(timeout, func() {
+			thread.Cancel(fmt.Sprintf("timeout after %s", timeout))
+		})
+	}
+
+	out, err := starlark.Call(thread, fn, args, kwargs)
+
+	if timer != nil {
+		timer.Stop()
+	}
+
+	return out, err
 }
 
 func (rt *Runtime) builtinLog(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {

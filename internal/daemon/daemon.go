@@ -24,9 +24,12 @@ type Daemon struct {
 	reg atomic.Value // *Registry
 
 	watcher *fsnotify.Watcher
+
+	handlerMaxSteps uint64
+	handlerTimeout  time.Duration
 }
 
-func New(dir string, debug bool) (*Daemon, error) {
+func New(dir string, debug bool, handlerMaxSteps uint64, handlerTimeout time.Duration) (*Daemon, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("dir is empty")
 	}
@@ -35,8 +38,10 @@ func New(dir string, debug bool) (*Daemon, error) {
 	}
 
 	d := &Daemon{
-		dir:   dir,
-		debug: debug,
+		dir:             dir,
+		debug:           debug,
+		handlerMaxSteps: handlerMaxSteps,
+		handlerTimeout:  handlerTimeout,
 	}
 	d.reg.Store(NewRegistry())
 
@@ -80,7 +85,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	i3ipc.StartEventListener()
 	d.debugf("started i3 event listener")
 
-	rt := starlib.NewRuntime(i3c, execRunner, d.debug, d.debugf, d.logf)
+	rt := starlib.NewRuntime(i3c, execRunner, d.debug, d.debugf, d.logf, d.handlerMaxSteps, d.handlerTimeout)
 
 	// Initial load.
 	d.reload(rt, nil)

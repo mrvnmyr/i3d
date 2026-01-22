@@ -35,7 +35,7 @@ def on_workspace(e):
 
 func newBenchRuntime() *starlib.Runtime {
 	debug := os.Getenv("DEBUG") == "1"
-	return starlib.NewRuntime(nil, starlib.NewExecRunner(context.Background()), debug, nil, func(string, ...any) {})
+	return starlib.NewRuntime(nil, starlib.NewExecRunner(context.Background()), debug, nil, func(string, ...any) {}, 0, 0)
 }
 
 func BenchmarkLoadAll(b *testing.B) {

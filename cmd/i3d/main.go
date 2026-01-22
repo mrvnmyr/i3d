@@ -7,7 +7,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
+	"time"
 
 	"i3d/internal/daemon"
 )
@@ -28,6 +31,8 @@ Behavior:
 Environment:
   I3D_DIR=/path  Override scripts directory
   DEBUG=1        Enable daemon debug logs (script print(...) always prints)
+  I3D_HANDLER_MAX_STEPS   Max Starlark steps per handler (0 disables, default 5000000)
+  I3D_HANDLER_TIMEOUT_MS  Max handler wall time in ms (0 disables, default 2000)
 
 Usage:
   i3d [--help|-h]
@@ -71,7 +76,18 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	d, err := daemon.New(dir, debug)
+	handlerMaxSteps, err := envUint("I3D_HANDLER_MAX_STEPS", 5_000_000)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "i3d: %v\n", err)
+		os.Exit(2)
+	}
+	handlerTimeout, err := envDurationMs("I3D_HANDLER_TIMEOUT_MS", 2000)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "i3d: %v\n", err)
+		os.Exit(2)
+	}
+
+	d, err := daemon.New(dir, debug, handlerMaxSteps, handlerTimeout)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "i3d: init failed: %v\n", err)
 		os.Exit(1)
@@ -80,4 +96,34 @@ func main() {
 		fmt.Fprintf(os.Stderr, "i3d: exited with error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func envUint(name string, def uint64) (uint64, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return def, nil
+	}
+	v, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an unsigned integer, got %q", name, raw)
+	}
+	return v, nil
+}
+
+func envDurationMs(name string, defMs int64) (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		if defMs <= 0 {
+			return 0, nil
+		}
+		return time.Duration(defMs) * time.Millisecond, nil
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer (ms), got %q", name, raw)
+	}
+	if v <= 0 {
+		return 0, nil
+	}
+	return time.Duration(v) * time.Millisecond, nil
 }

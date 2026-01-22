@@ -159,7 +159,7 @@ func loadOne(rt *starlib.Runtime, path string) (*Script, error) {
 	// Optional: init()
 	if iv, ok := globals["init"]; ok {
 		if c, ok2 := iv.(starlark.Callable); ok2 {
-			if _, err := starlark.Call(thread, c, nil, nil); err != nil {
+			if err := rt.CallInit(thread, c); err != nil {
 				return nil, fmt.Errorf("init(): %w", err)
 			}
 		} else {
