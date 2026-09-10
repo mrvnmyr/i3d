@@ -1,0 +1,121 @@
+# ~/.config/i3d/70-hide-windows-by-title.starlark
+#
+# Hide windows whose titles match configured substrings or regular expressions.
+# Each hidden window receives a unique i3 mark such as i3d-hidden-12345 before
+# it is moved to the scratchpad, so any number of matching windows can coexist.
+#
+# i3 has one global scratchpad rather than truly named scratchpads. To prevent
+# a normal scratchpad binding from showing these windows, mark user-controlled
+# scratchpad windows and restrict the binding to that mark:
+#
+#   bindsym Mod3+Shift+s mark --add user-scratchpad, move scratchpad
+#   bindsym Mod3+s [con_mark="^user-scratchpad$"] scratchpad show
+#
+# An unqualified `scratchpad show` can still reveal i3d-hidden-* windows.
+
+priority = 50
+
+# Each entry must contain exactly one of:
+#   substring: a literal, case-sensitive fragment of the window title
+#   regex:     an i3/PCRE regular expression matched against the title
+#
+# Uncomment and customize entries as needed. Keeping the defaults commented
+# makes it safe to copy or run the examples directory without hiding windows.
+TITLE_MATCHES = [
+    # {"substring": "Authentication Required"},
+    # {"regex": "(?i)^update available(?: .*)?$"},
+]
+
+# Characters with special meaning in a PCRE pattern. Substring entries escape
+# all of them so that a title fragment such as "file.txt" stays literal.
+_REGEX_META = "\\.^$|?*+()[]{}"
+
+
+def _escape_regex_literal(value):
+    escaped = ""
+    for char in value:
+        if char in _REGEX_META:
+            escaped += "\\"
+        escaped += char
+    return escaped
+
+
+def _escape_i3_string(value):
+    # Preserve regex backslashes while safely quoting an i3 criteria string.
+    value = value.replace("\\", "\\\\")
+    value = value.replace('"', '\\"')
+    value = value.replace("\r", " ")
+    value = value.replace("\n", " ")
+    return value
+
+
+def _entry_pattern(entry):
+    if type(entry) != "dict":
+        log("hide-windows-by-title: match entry must be a dict: %s" % str(entry))
+        return None
+
+    substring = entry.get("substring", None)
+    regex = entry.get("regex", None)
+    if (substring == None) == (regex == None):
+        log(
+            "hide-windows-by-title: match entry must contain exactly one of "
+            + "substring or regex: %s" % str(entry)
+        )
+        return None
+
+    if substring != None:
+        if type(substring) != "string" or substring == "":
+            log("hide-windows-by-title: substring must be a non-empty string")
+            return None
+        return _escape_regex_literal(substring)
+
+    if type(regex) != "string" or regex == "":
+        log("hide-windows-by-title: regex must be a non-empty string")
+        return None
+    return regex
+
+
+def _hide_if_title_matches(con_id, mark, pattern):
+    # Let i3 evaluate the PCRE title criterion. Combining it with con_id keeps
+    # the command scoped to precisely the window that generated this event.
+    cmd = (
+        '[con_id="%d" title="%s"] mark --add "%s", move scratchpad'
+        % (con_id, _escape_i3_string(pattern), mark)
+    )
+    if not i3.command(cmd):
+        log("hide-windows-by-title: i3 rejected title regex: %s" % pattern)
+        return False
+
+    # A syntactically valid command also succeeds when its criteria match no
+    # containers. The unique mark tells us whether this pattern really matched.
+    return mark in i3.get_marks()
+
+
+def on_window(e):
+    # Many applications set their useful title only after the new event, so
+    # inspect both creation and later title changes.
+    if e.get("change", "") not in ("new", "title"):
+        return
+
+    con_id = e.get("con_id", None)
+    if con_id == None:
+        return
+
+    mark = "i3d-hidden-%d" % con_id
+    if mark in i3.get_marks():
+        return
+
+    for entry in TITLE_MATCHES:
+        pattern = _entry_pattern(entry)
+        if pattern == None:
+            continue
+        if _hide_if_title_matches(con_id, mark, pattern):
+            if debug:
+                log(
+                    (
+                        "hide-windows-by-title: moved con_id=%d to scratchpad "
+                        + "with mark=%s"
+                    )
+                    % (con_id, mark)
+                )
+            return
