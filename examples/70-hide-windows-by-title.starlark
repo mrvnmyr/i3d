@@ -45,7 +45,9 @@ _REGEX_META = "\\.^$|?*+()[]{}"
 
 def _escape_regex_literal(value):
     escaped = ""
-    for char in value:
+    # go.starlark strings are intentionally not directly iterable. elems()
+    # exposes their one-byte string elements for the ASCII PCRE metacharacters.
+    for char in value.elems():
         if char in _REGEX_META:
             escaped += "\\"
         escaped += char
