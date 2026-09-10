@@ -19,11 +19,23 @@ priority = 50
 #   substring: a literal, case-sensitive fragment of the window title
 #   regex:     an i3/PCRE regular expression matched against the title
 #
+# An entry may also constrain the X11 WM_CLASS class (its second value) with
+# exactly one of these optional keys:
+#   class_substring: a literal, case-sensitive fragment of WM_CLASS
+#   class_regex:     an i3/PCRE regular expression matched against WM_CLASS
+#
 # Uncomment and customize entries as needed. Keeping the defaults commented
 # makes it safe to copy or run the examples directory without hiding windows.
 TITLE_MATCHES = [
     # {"substring": "Authentication Required"},
-    # {"regex": "(?i)^update available(?: .*)?$"},
+    # {
+    #     "regex": "(?i)^update available(?: .*)?$",
+    #     "class_substring": "Firefox",
+    # },
+    # {
+    #     "substring": "Sign in",
+    #     "class_regex": "(?i)^chromium$",
+    # },
 ]
 
 # Characters with special meaning in a PCRE pattern. Substring entries escape
@@ -49,41 +61,81 @@ def _escape_i3_string(value):
     return value
 
 
-def _entry_pattern(entry):
+def _pattern_from_keys(entry, substring_key, regex_key, required):
+    substring = entry.get(substring_key, None)
+    regex = entry.get(regex_key, None)
+
+    if substring == None and regex == None:
+        if required:
+            log(
+                "hide-windows-by-title: match entry must contain exactly one "
+                + "of %s or %s: %s" % (substring_key, regex_key, str(entry))
+            )
+            return (False, None)
+        return (True, None)
+
+    if substring != None and regex != None:
+        log(
+            "hide-windows-by-title: match entry cannot contain both %s and %s: %s"
+            % (substring_key, regex_key, str(entry))
+        )
+        return (False, None)
+
+    if substring != None:
+        if type(substring) != "string" or substring == "":
+            log(
+                "hide-windows-by-title: %s must be a non-empty string"
+                % substring_key
+            )
+            return (False, None)
+        return (True, _escape_regex_literal(substring))
+
+    if type(regex) != "string" or regex == "":
+        log(
+            "hide-windows-by-title: %s must be a non-empty string"
+            % regex_key
+        )
+        return (False, None)
+    return (True, regex)
+
+
+def _entry_patterns(entry):
     if type(entry) != "dict":
         log("hide-windows-by-title: match entry must be a dict: %s" % str(entry))
         return None
 
-    substring = entry.get("substring", None)
-    regex = entry.get("regex", None)
-    if (substring == None) == (regex == None):
-        log(
-            "hide-windows-by-title: match entry must contain exactly one of "
-            + "substring or regex: %s" % str(entry)
-        )
-        return None
-
-    if substring != None:
-        if type(substring) != "string" or substring == "":
-            log("hide-windows-by-title: substring must be a non-empty string")
-            return None
-        return _escape_regex_literal(substring)
-
-    if type(regex) != "string" or regex == "":
-        log("hide-windows-by-title: regex must be a non-empty string")
-        return None
-    return regex
-
-
-def _hide_if_title_matches(con_id, mark, pattern):
-    # Let i3 evaluate the PCRE title criterion. Combining it with con_id keeps
-    # the command scoped to precisely the window that generated this event.
-    cmd = (
-        '[con_id="%d" title="%s"] mark --add "%s", move scratchpad'
-        % (con_id, _escape_i3_string(pattern), mark)
+    title_ok, title_pattern = _pattern_from_keys(
+        entry, "substring", "regex", True
     )
+    if not title_ok:
+        return None
+
+    class_ok, class_pattern = _pattern_from_keys(
+        entry, "class_substring", "class_regex", False
+    )
+    if not class_ok:
+        return None
+
+    return (title_pattern, class_pattern)
+
+
+def _hide_if_window_matches(con_id, mark, title_pattern, class_pattern):
+    # Let i3 evaluate the PCRE criteria. Combining them with con_id keeps the
+    # command scoped to precisely the window that generated this event.
+    criteria = '[con_id="%d" title="%s"' % (
+        con_id,
+        _escape_i3_string(title_pattern),
+    )
+    if class_pattern != None:
+        criteria += ' class="%s"' % _escape_i3_string(class_pattern)
+    criteria += "]"
+
+    cmd = '%s mark --add "%s", move scratchpad' % (criteria, mark)
     if not i3.command(cmd):
-        log("hide-windows-by-title: i3 rejected title regex: %s" % pattern)
+        log(
+            "hide-windows-by-title: i3 rejected title/class criteria: %s"
+            % criteria
+        )
         return False
 
     # A syntactically valid command also succeeds when its criteria match no
@@ -106,10 +158,13 @@ def on_window(e):
         return
 
     for entry in TITLE_MATCHES:
-        pattern = _entry_pattern(entry)
-        if pattern == None:
+        patterns = _entry_patterns(entry)
+        if patterns == None:
             continue
-        if _hide_if_title_matches(con_id, mark, pattern):
+        title_pattern, class_pattern = patterns
+        if _hide_if_window_matches(
+            con_id, mark, title_pattern, class_pattern
+        ):
             if debug:
                 log(
                     (
