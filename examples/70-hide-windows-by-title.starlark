@@ -132,17 +132,19 @@ def _hide_if_window_matches(con_id, mark, title_pattern, class_pattern):
         criteria += ' class="%s"' % _escape_i3_string(class_pattern)
     criteria += "]"
 
-    cmd = '%s mark --add "%s", move scratchpad' % (criteria, mark)
-    if not i3.command(cmd):
-        log(
-            "hide-windows-by-title: i3 rejected title/class criteria: %s"
-            % criteria
-        )
+    # i3 reports an unmatched container criterion as command failure, so False
+    # means this pattern did not select the window rather than an invalid regex.
+    if not i3.command('%s mark --add "%s"' % (criteria, mark)):
         return False
 
-    # A syntactically valid command also succeeds when its criteria match no
-    # containers. The unique mark tells us whether this pattern really matched.
-    return mark in i3.get_marks()
+    # Verify the conditional mark before moving it in a separate command. This
+    # avoids ambiguous multi-command replies and preserves the mark while hidden.
+    if mark not in i3.get_marks():
+        return False
+    if not i3.command('[con_mark="^%s$"] move scratchpad' % mark):
+        log("hide-windows-by-title: failed to move mark=%s to scratchpad" % mark)
+        return False
+    return True
 
 
 def on_window(e):
