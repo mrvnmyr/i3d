@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	i3ipc "github.com/mdirkse/i3ipc-go"
-
 	"i3d/internal/starlib"
+
+	i3 "go.i3wm.org/i3/v4"
 )
 
 func benchWriteScripts(dir string, n int) error {
@@ -122,8 +122,8 @@ def on_workspace(e):
 	d := &Daemon{debug: debug}
 	d.reg.Store(reg)
 
-	ev := i3ipc.Event{
-		Type:   i3ipc.I3WorkspaceEvent,
+	ev := daemonEvent{
+		Type:   i3.WorkspaceEventType,
 		Change: "focus",
 	}
 

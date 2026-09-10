@@ -4,14 +4,14 @@ import (
 	"path/filepath"
 	"sort"
 
-	i3ipc "github.com/mdirkse/i3ipc-go"
+	i3 "go.i3wm.org/i3/v4"
 	"go.starlark.net/starlark"
 )
 
 type Handler struct {
 	Path      string
 	Priority  int
-	EventType i3ipc.EventType
+	EventType i3.EventType
 	EventName string
 	Callable  starlark.Callable
 	Thread    *starlark.Thread
@@ -31,7 +31,7 @@ type ScriptInfo struct {
 }
 
 type Registry struct {
-	ByEvent map[i3ipc.EventType][]Handler
+	ByEvent map[i3.EventType][]Handler
 	Scripts map[string]ScriptInfo // key: absolute script path
 
 	scriptCount  int
@@ -40,7 +40,7 @@ type Registry struct {
 
 func NewRegistry() *Registry {
 	return &Registry{
-		ByEvent: map[i3ipc.EventType][]Handler{},
+		ByEvent: map[i3.EventType][]Handler{},
 		Scripts: map[string]ScriptInfo{},
 	}
 }
@@ -101,19 +101,19 @@ func (r *Registry) ScriptPathsSorted() []string {
 	return out
 }
 
-func eventTypeToName(et i3ipc.EventType) string {
+func eventTypeToName(et i3.EventType) string {
 	switch et {
-	case i3ipc.I3WorkspaceEvent:
+	case i3.WorkspaceEventType:
 		return "workspace"
-	case i3ipc.I3OutputEvent:
+	case i3.OutputEventType:
 		return "output"
-	case i3ipc.I3ModeEvent:
+	case i3.ModeEventType:
 		return "mode"
-	case i3ipc.I3WindowEvent:
+	case i3.WindowEventType:
 		return "window"
-	case i3ipc.I3BarConfigUpdateEvent:
+	case i3.BarconfigUpdateEventType:
 		return "barconfig_update"
-	case i3ipc.I3BindingEvent:
+	case i3.BindingEventType:
 		return "binding"
 	default:
 		return "unknown"

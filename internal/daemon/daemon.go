@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	i3ipc "github.com/mdirkse/i3ipc-go"
+	i3 "go.i3wm.org/i3/v4"
 
 	"i3d/internal/starlib"
 )
@@ -27,6 +27,12 @@ type Daemon struct {
 
 	handlerMaxSteps uint64
 	handlerTimeout  time.Duration
+}
+
+type daemonEvent struct {
+	Type   i3.EventType
+	Change string
+	Window *i3.WindowEvent
 }
 
 func New(dir string, debug bool, handlerMaxSteps uint64, handlerTimeout time.Duration) (*Daemon, error) {
@@ -62,40 +68,49 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	execRunner := starlib.NewExecRunner(ctx)
 
-	// IMPORTANT:
-	// i3ipc-go can hard-fail (log.Fatal/os.Exit) if it cannot discover/connect to i3
-	// at startup (common under systemd when i3 isn't ready yet, or PATH/env differs).
-	// So we first establish our own IPC client with retries, then set I3SOCK and only
-	// then start the i3ipc-go event listener/subscriptions.
+	// Establish the request/reply connection first. Besides making startup under
+	// systemd reliable, this gives the event receiver a verified socket path.
 	i3c, err := d.initI3Client(ctx)
 	if err != nil {
 		return fmt.Errorf("init i3 IPC client: %w", err)
 	}
 	defer func() { _ = i3c.Close() }()
 
-	// Help i3ipc-go find the socket without needing to exec i3.
+	// Make both child processes and go-i3 use the socket we already verified.
 	if sp := i3c.SocketPath(); sp != "" {
 		_ = os.Setenv("I3SOCK", sp)
+		i3.SocketPathHook = func() (string, error) { return sp, nil }
 		if d.debug {
-			d.debugf("set I3SOCK=%s for i3ipc-go", sp)
+			d.debugf("configured i3 socket=%s", sp)
 		}
 	}
-
-	d.debugf("starting i3 event listener")
-	i3ipc.StartEventListener()
-	d.debugf("started i3 event listener")
 
 	rt := starlib.NewRuntime(i3c, execRunner, d.debug, d.debugf, d.logf, d.handlerMaxSteps, d.handlerTimeout)
 
 	// Initial load.
 	d.reload(rt, nil)
 
-	// Subscribe to all known event types up-front (cheap, avoids resubscribe logic).
-	eventIn := make(chan i3ipc.Event, 128)
-	subErr := d.subscribeAll(ctx, eventIn)
-	if subErr != nil {
-		return subErr
-	}
+	// A single receiver preserves ordering and avoids one socket/goroutine per
+	// event type. go-i3 reconnects with backoff after transient IPC failures.
+	eventIn := make(chan daemonEvent, 128)
+	eventErr := make(chan error, 1)
+	receiver := i3.Subscribe(
+		i3.WorkspaceEventType,
+		i3.OutputEventType,
+		i3.ModeEventType,
+		i3.WindowEventType,
+		i3.BarconfigUpdateEventType,
+		i3.BindingEventType,
+	)
+	eventDone := make(chan struct{})
+	go func() {
+		defer close(eventDone)
+		d.receiveEvents(ctx, receiver, eventIn, eventErr)
+	}()
+	defer func() {
+		_ = receiver.Close()
+		<-eventDone
+	}()
 
 	// Debounced reload trigger with list of changed paths.
 	reloadReq := make(chan []string, 8)
@@ -114,6 +129,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 				return nil
 			}
 			d.dispatch(rt, ev)
+		case err := <-eventErr:
+			return fmt.Errorf("i3 event receiver: %w", err)
 		case paths := <-reloadReq:
 			d.reload(rt, paths)
 		}
@@ -160,49 +177,53 @@ func (d *Daemon) initI3Client(ctx context.Context) (*starlib.I3Client, error) {
 	return nil, lastErr
 }
 
-func (d *Daemon) subscribeAll(ctx context.Context, out chan<- i3ipc.Event) error {
-	type sub struct {
-		name string
-		typ  i3ipc.EventType
-	}
-	subs := []sub{
-		{"workspace", i3ipc.I3WorkspaceEvent},
-		{"output", i3ipc.I3OutputEvent},
-		{"mode", i3ipc.I3ModeEvent},
-		{"window", i3ipc.I3WindowEvent},
-		{"barconfig_update", i3ipc.I3BarConfigUpdateEvent},
-		{"binding", i3ipc.I3BindingEvent},
-	}
-
-	for _, s := range subs {
-		ch, err := i3ipc.Subscribe(s.typ)
-		if err != nil {
-			return fmt.Errorf("subscribe %s: %w", s.name, err)
+func (d *Daemon) receiveEvents(ctx context.Context, receiver *i3.EventReceiver, out chan<- daemonEvent, errOut chan<- error) {
+	for receiver.Next() {
+		ev, ok := adaptEvent(receiver.Event())
+		if !ok {
+			continue
 		}
-		go func(c <-chan i3ipc.Event) {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case ev, ok := <-c:
-					if !ok {
-						return
-					}
-					select {
-					case out <- ev:
-					default:
-						// Drop if overloaded; handlers should be fast.
-						// (Keeps memory footprint bounded.)
-						if d.debug {
-							d.debugf("dropped event=%s change=%s (queue full)", eventTypeToName(ev.Type), ev.Change)
-						}
-					}
-				}
+
+		select {
+		case out <- ev:
+		default:
+			// Keep memory bounded while continuing to drain the IPC socket.
+			if d.debug {
+				d.debugf("dropped event=%s change=%s (queue full)", eventTypeToName(ev.Type), ev.Change)
 			}
-		}(ch)
+		}
 	}
 
-	return nil
+	err := receiver.Close()
+	if ctx.Err() != nil {
+		return
+	}
+	if err == nil {
+		err = errors.New("event stream ended")
+	}
+	select {
+	case errOut <- err:
+	case <-ctx.Done():
+	}
+}
+
+func adaptEvent(ev i3.Event) (daemonEvent, bool) {
+	switch ev := ev.(type) {
+	case *i3.WorkspaceEvent:
+		return daemonEvent{Type: i3.WorkspaceEventType, Change: ev.Change}, true
+	case *i3.OutputEvent:
+		return daemonEvent{Type: i3.OutputEventType, Change: ev.Change}, true
+	case *i3.ModeEvent:
+		return daemonEvent{Type: i3.ModeEventType, Change: ev.Change}, true
+	case *i3.WindowEvent:
+		return daemonEvent{Type: i3.WindowEventType, Change: ev.Change, Window: ev}, true
+	case *i3.BarconfigUpdateEvent:
+		return daemonEvent{Type: i3.BarconfigUpdateEventType}, true
+	case *i3.BindingEvent:
+		return daemonEvent{Type: i3.BindingEventType, Change: ev.Change}, true
+	default:
+		return daemonEvent{}, false
+	}
 }
 
 func (d *Daemon) watchLoop(ctx context.Context, reloadReq chan<- []string) {
@@ -406,7 +427,7 @@ func (d *Daemon) reload(rt *starlib.Runtime, changedPaths []string) {
 		reg.ScriptCount(), reg.HandlerCount(), len(errs))
 }
 
-func (d *Daemon) dispatch(rt *starlib.Runtime, ev i3ipc.Event) {
+func (d *Daemon) dispatch(rt *starlib.Runtime, ev daemonEvent) {
 	// Reset per-dispatch caches (e.g., GET_TREE) so scripts can reuse work within this event.
 	rt.BeginEvent()
 	defer rt.EndEvent()
@@ -424,14 +445,16 @@ func (d *Daemon) dispatch(rt *starlib.Runtime, ev i3ipc.Event) {
 		d.debugf("event=%s change=%s handlers=%d", eventTypeToName(ev.Type), ev.Change, len(handlers))
 	}
 
-	evObj := starlib.EventValue(ev)
+	evObj := starlib.EventValue(eventTypeToName(ev.Type), ev.Change)
 
 	// Enrich window events so most scripts don't need tree queries.
-	if ev.Type == i3ipc.I3WindowEvent {
+	if ev.Type == i3.WindowEventType {
 		if d.debug {
 			d.debugf("enriching window event")
 		}
-		if err := rt.EnrichWindowEvent(evObj); err != nil {
+		if ev.Window == nil {
+			d.logf("enrich window event: missing window payload")
+		} else if err := rt.EnrichWindowEvent(evObj, int64(ev.Window.Container.ID), int64(ev.Window.Container.FullscreenMode)); err != nil {
 			d.logf("enrich window event: %v", err)
 		}
 	}

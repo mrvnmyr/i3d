@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	i3ipc "github.com/mdirkse/i3ipc-go"
 	"go.starlark.net/starlark"
 )
 
@@ -131,7 +130,7 @@ func (rt *Runtime) builtinI3Raw(_ *starlark.Thread, b *starlark.Builtin, args st
 	}
 
 	// Per-dispatch cache for GET_TREE.
-	if mt == i3ipc.I3GetTree {
+	if mt == messageTypeGetTree {
 		if rt.debug && rt.debugf != nil {
 			rt.debugf("i3.raw get_tree (payload ignored, len=%d)", len(payload))
 		}
@@ -181,7 +180,7 @@ func (rt *Runtime) builtinI3Query(_ *starlark.Thread, b *starlark.Builtin, args 
 	}
 
 	// Per-dispatch cache for GET_TREE.
-	if mt == i3ipc.I3GetTree {
+	if mt == messageTypeGetTree {
 		if rt.debug && rt.debugf != nil {
 			rt.debugf("i3.query get_tree (payload ignored, len=%d)", len(payload))
 		}
@@ -384,7 +383,7 @@ type i3WorkspaceInfo struct {
 }
 
 func (rt *Runtime) getWorkspacesInfo() ([]i3WorkspaceInfo, error) {
-	raw, err := rt.i3.Raw(i3ipc.I3GetWorkspaces, "")
+	raw, err := rt.i3.Raw(messageTypeGetWorkspaces, "")
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +415,7 @@ func (rt *Runtime) builtinI3GetWorkspaces(_ *starlark.Thread, b *starlark.Builti
 	if len(args) != 0 || len(kwargs) != 0 {
 		return nil, fmt.Errorf("get_workspaces takes no arguments")
 	}
-	raw, err := rt.i3.Raw(i3ipc.I3GetWorkspaces, "")
+	raw, err := rt.i3.Raw(messageTypeGetWorkspaces, "")
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +431,7 @@ func (rt *Runtime) builtinI3GetOutputs(_ *starlark.Thread, b *starlark.Builtin, 
 	if len(args) != 0 || len(kwargs) != 0 {
 		return nil, fmt.Errorf("get_outputs takes no arguments")
 	}
-	raw, err := rt.i3.Raw(i3ipc.I3GetOutputs, "")
+	raw, err := rt.i3.Raw(messageTypeGetOutputs, "")
 	if err != nil {
 		return nil, err
 	}
@@ -541,7 +540,7 @@ func (rt *Runtime) builtinI3GetVersion(_ *starlark.Thread, b *starlark.Builtin, 
 	if len(args) != 0 || len(kwargs) != 0 {
 		return nil, fmt.Errorf("get_version takes no arguments")
 	}
-	raw, err := rt.i3.Raw(i3ipc.I3GetVersion, "")
+	raw, err := rt.i3.Raw(messageTypeGetVersion, "")
 	if err != nil {
 		return nil, err
 	}
@@ -577,7 +576,7 @@ func (rt *Runtime) builtinI3GetBarConfig(_ *starlark.Thread, b *starlark.Builtin
 	if err := starlark.UnpackArgs("get_bar_config", args, kwargs, "bar_id", &id); err != nil {
 		return nil, err
 	}
-	raw, err := rt.i3.Raw(i3ipc.I3GetBarConfig, id)
+	raw, err := rt.i3.Raw(messageTypeGetBarConfig, id)
 	if err != nil {
 		return nil, err
 	}
@@ -588,20 +587,20 @@ func (rt *Runtime) builtinI3GetBarConfig(_ *starlark.Thread, b *starlark.Builtin
 	return JSONToStarlark(anyv)
 }
 
-func parseMessageType(s string) (i3ipc.MessageType, error) {
+func parseMessageType(s string) (messageType, error) {
 	switch lower(s) {
 	case "get_tree", "tree":
-		return i3ipc.I3GetTree, nil
+		return messageTypeGetTree, nil
 	case "get_workspaces", "workspaces":
-		return i3ipc.I3GetWorkspaces, nil
+		return messageTypeGetWorkspaces, nil
 	case "get_outputs", "outputs":
-		return i3ipc.I3GetOutputs, nil
+		return messageTypeGetOutputs, nil
 	case "get_marks", "marks":
-		return i3ipc.I3GetMarks, nil
+		return messageTypeGetMarks, nil
 	case "get_bar_config", "bar_config", "get_barconfig":
-		return i3ipc.I3GetBarConfig, nil
+		return messageTypeGetBarConfig, nil
 	case "get_version", "version":
-		return i3ipc.I3GetVersion, nil
+		return messageTypeGetVersion, nil
 	default:
 		return 0, fmt.Errorf("unknown i3 message type: %q", s)
 	}

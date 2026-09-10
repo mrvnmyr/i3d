@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	i3ipc "github.com/mdirkse/i3ipc-go"
 	"go.starlark.net/starlark"
 )
 
@@ -169,7 +168,7 @@ func (rt *Runtime) getTreeRaw() ([]byte, error) {
 		return rt.eventTree.raw, nil
 	}
 
-	raw, err := rt.i3.Raw(i3ipc.I3GetTree, "")
+	raw, err := rt.i3.Raw(messageTypeGetTree, "")
 	if err != nil {
 		return nil, err
 	}
@@ -235,31 +234,76 @@ func (rt *Runtime) getTreeStarlark() (starlark.Value, error) {
 //	workspace_num: int|None
 //	fullscreen_mode: int|None
 //
-// for window events by inspecting the focused node in the tree.
-func (rt *Runtime) EnrichWindowEvent(ev *starlark.Dict) error {
-	id, ws, fs, ok, err := rt.focusedNodeInfo()
+// conID and fullscreenMode come from the window event's container. Only the
+// workspace must be recovered from the tree because event containers do not
+// include their ancestors.
+func (rt *Runtime) EnrichWindowEvent(ev *starlark.Dict, conID int64, fullscreenMode int64) error {
+	if conID <= 0 {
+		_ = ev.SetKey(starlark.String("con_id"), starlark.None)
+		_ = ev.SetKey(starlark.String("workspace_num"), starlark.None)
+		_ = ev.SetKey(starlark.String("fullscreen_mode"), starlark.MakeInt64(fullscreenMode))
+		return nil
+	}
+
+	ws, ok, err := rt.workspaceNumByConID(conID)
 	if err != nil {
 		return err
 	}
 
+	_ = ev.SetKey(starlark.String("con_id"), starlark.MakeInt64(conID))
+	_ = ev.SetKey(starlark.String("fullscreen_mode"), starlark.MakeInt64(fullscreenMode))
+
 	if !ok {
-		_ = ev.SetKey(starlark.String("con_id"), starlark.None)
 		_ = ev.SetKey(starlark.String("workspace_num"), starlark.None)
-		_ = ev.SetKey(starlark.String("fullscreen_mode"), starlark.None)
 		if rt.debug && rt.debugf != nil {
-			rt.debugf("window enrich: focused node not found")
+			rt.debugf("window enrich: con_id=%d not found in tree", conID)
 		}
 		return nil
 	}
 
-	_ = ev.SetKey(starlark.String("con_id"), starlark.MakeInt64(id))
 	_ = ev.SetKey(starlark.String("workspace_num"), starlark.MakeInt64(ws))
-	_ = ev.SetKey(starlark.String("fullscreen_mode"), starlark.MakeInt64(fs))
 
 	if rt.debug && rt.debugf != nil {
-		rt.debugf("window enrich: con_id=%d workspace_num=%d fullscreen_mode=%d", id, ws, fs)
+		rt.debugf("window enrich: con_id=%d workspace_num=%d fullscreen_mode=%d", conID, ws, fullscreenMode)
 	}
 	return nil
+}
+
+func (rt *Runtime) workspaceNumByConID(conID int64) (int64, bool, error) {
+	anyv, err := rt.getTreeAny()
+	if err != nil {
+		return 0, false, err
+	}
+	root, ok := anyv.(map[string]any)
+	if !ok {
+		return 0, false, fmt.Errorf("get_tree: unexpected root type %T", anyv)
+	}
+
+	var find func(n map[string]any, curWS int64) (int64, bool)
+	find = func(n map[string]any, curWS int64) (int64, bool) {
+		if t, ok := n["type"].(string); ok && t == "workspace" {
+			if v, ok := nodeInt64(n, "num"); ok {
+				curWS = v
+			}
+		}
+		if id, ok := nodeInt64(n, "id"); ok && id == conID {
+			return curWS, true
+		}
+		for _, child := range childNodes(n, "nodes") {
+			if ws, ok := find(child, curWS); ok {
+				return ws, true
+			}
+		}
+		for _, child := range childNodes(n, "floating_nodes") {
+			if ws, ok := find(child, curWS); ok {
+				return ws, true
+			}
+		}
+		return 0, false
+	}
+
+	ws, found := find(root, 0)
+	return ws, found, nil
 }
 
 func (rt *Runtime) focusedNodeInfo() (conID int64, wsNum int64, fullscreenMode int64, ok bool, err error) {

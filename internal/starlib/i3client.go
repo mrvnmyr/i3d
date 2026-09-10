@@ -17,8 +17,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	i3ipc "github.com/mdirkse/i3ipc-go"
 )
 
 // I3Client is a small, dedicated i3 IPC request/reply client.
@@ -29,8 +27,8 @@ import (
 //   - JSON decode failures with embedded NULs
 //   - broken pipe on write
 //
-// i3d uses i3ipc-go only for event subscription; all request/reply traffic goes
-// through this dedicated client/connection.
+// Event subscriptions use go-i3; all request/reply traffic goes through this
+// dedicated client/connection.
 type I3Client struct {
 	debug  bool
 	debugf func(string, ...any)
@@ -72,7 +70,7 @@ func (c *I3Client) Close() error {
 }
 
 func (c *I3Client) Command(cmd string) (bool, error) {
-	payload, err := c.roundTrip(uint32(0), []byte(cmd))
+	payload, err := c.roundTrip(uint32(messageTypeRunCommand), []byte(cmd))
 	if err != nil {
 		return false, err
 	}
@@ -96,12 +94,12 @@ func (c *I3Client) Command(cmd string) (bool, error) {
 	return true, nil
 }
 
-func (c *I3Client) Raw(mt i3ipc.MessageType, payload string) ([]byte, error) {
+func (c *I3Client) Raw(mt messageType, payload string) ([]byte, error) {
 	return c.roundTrip(uint32(mt), []byte(payload))
 }
 
 func (c *I3Client) GetMarks() ([]string, error) {
-	raw, err := c.roundTrip(uint32(i3ipc.I3GetMarks), nil)
+	raw, err := c.roundTrip(uint32(messageTypeGetMarks), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +112,7 @@ func (c *I3Client) GetMarks() ([]string, error) {
 
 func (c *I3Client) GetBarIds() ([]string, error) {
 	// i3 returns bar IDs via GET_BAR_CONFIG with empty payload.
-	raw, err := c.roundTrip(uint32(i3ipc.I3GetBarConfig), nil)
+	raw, err := c.roundTrip(uint32(messageTypeGetBarConfig), nil)
 	if err != nil {
 		return nil, err
 	}

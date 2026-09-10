@@ -89,4 +89,5 @@ Predeclared globals for every script:
 Notes
 -----
 
-- The embedded i3 event object is: ``{"type": "...", "change": "..."}``. (i3ipc-go’s Event struct is minimal; scripts can query i3 state via ``i3.*``.)
+- The embedded i3 event object always contains ``{"type": "...", "change": "..."}``.
+- Window events also contain ``con_id``, ``workspace_num``, and ``fullscreen_mode``.

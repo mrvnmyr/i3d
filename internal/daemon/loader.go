@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	i3ipc "github.com/mdirkse/i3ipc-go"
+	i3 "go.i3wm.org/i3/v4"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -25,16 +25,16 @@ func (e ScriptError) Error() string {
 
 type eventDef struct {
 	name string
-	typ  i3ipc.EventType
+	typ  i3.EventType
 }
 
 var knownEvents = []eventDef{
-	{"workspace", i3ipc.I3WorkspaceEvent},
-	{"output", i3ipc.I3OutputEvent},
-	{"mode", i3ipc.I3ModeEvent},
-	{"window", i3ipc.I3WindowEvent},
-	{"barconfig_update", i3ipc.I3BarConfigUpdateEvent},
-	{"binding", i3ipc.I3BindingEvent},
+	{"workspace", i3.WorkspaceEventType},
+	{"output", i3.OutputEventType},
+	{"mode", i3.ModeEventType},
+	{"window", i3.WindowEventType},
+	{"barconfig_update", i3.BarconfigUpdateEventType},
+	{"binding", i3.BindingEventType},
 }
 
 // LoadAll loads all *.starlark files from dir and returns a fresh handler registry.
@@ -68,7 +68,7 @@ type Script struct {
 	Priority int
 	Thread   *starlark.Thread
 	Globals  starlark.StringDict
-	Handlers map[i3ipc.EventType]starlark.Callable
+	Handlers map[i3.EventType]starlark.Callable
 }
 
 func loadOne(rt *starlib.Runtime, path string) (*Script, error) {
@@ -109,7 +109,7 @@ func loadOne(rt *starlib.Runtime, path string) (*Script, error) {
 		}
 	}
 
-	handlers := map[i3ipc.EventType]starlark.Callable{}
+	handlers := map[i3.EventType]starlark.Callable{}
 
 	// Convention: on_<eventname>(e)
 	for _, ev := range knownEvents {
@@ -176,21 +176,21 @@ func loadOne(rt *starlib.Runtime, path string) (*Script, error) {
 	}, nil
 }
 
-func eventNameToType(name string) (i3ipc.EventType, bool) {
+func eventNameToType(name string) (i3.EventType, bool) {
 	switch strings.ToLower(name) {
 	case "workspace":
-		return i3ipc.I3WorkspaceEvent, true
+		return i3.WorkspaceEventType, true
 	case "output":
-		return i3ipc.I3OutputEvent, true
+		return i3.OutputEventType, true
 	case "mode":
-		return i3ipc.I3ModeEvent, true
+		return i3.ModeEventType, true
 	case "window":
-		return i3ipc.I3WindowEvent, true
+		return i3.WindowEventType, true
 	case "barconfig_update", "bar_config_update":
-		return i3ipc.I3BarConfigUpdateEvent, true
+		return i3.BarconfigUpdateEventType, true
 	case "binding":
-		return i3ipc.I3BindingEvent, true
+		return i3.BindingEventType, true
 	default:
-		return 0, false
+		return "", false
 	}
 }
